@@ -222,7 +222,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v10';
+const BUILD = 'v11';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1266,7 +1266,21 @@ function syncBoxView(force) {
   const p = S.pages[b.page];
   if (p) renderInk(p);
 }
-setInterval(() => syncBoxView(false), 250);
+setInterval(() => syncBoxView(false), 120);
+let syncRaf = 0;
+function syncSoon() {
+  if (syncRaf) return;
+  syncRaf = requestAnimationFrame(() => { syncRaf = 0; syncBoxView(true); });
+}
+function watchView(api) {
+  if (!api || typeof api.registerClientListener !== 'function') return;
+  try {
+    api.registerClientListener(ev => {
+      const t = ev && (ev.type || ev[0]);
+      if (t === 'viewChanged2D' || t === 'perspectiveChange' || t === 'sidePanelOpened' || t === 'sidePanelClosed') syncSoon();
+    });
+  } catch (_) {}
+}
 function setManip(b, v) {
   b.manip = !!v;
   b.el.classList.toggle('manip', b.manip);
@@ -1342,14 +1356,27 @@ function dragBox(b, handle, kind) {
     if (kind === 'move') { b.x = d.x + dx; b.y = d.y + dy; }
     else { b.w = Math.max(160, d.w + dx); b.h = Math.max(140, d.h + dy); }
     placeBox(b);
+    if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
+      const now = performance.now();
+      if (!d.last || now - d.last > 80) {
+        d.last = now;
+        activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
+        syncBoxView(true);
+      }
+    }
+    const pg = S.pages[b.page];
+    if (pg) renderInk(pg);
   });
   ['pointerup', 'pointercancel'].forEach(t => handle.addEventListener(t, e => {
     if (!d || e.pointerId !== d.pid) return;
     d = null;
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
       activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
+      setTimeout(() => syncBoxView(true), 120);
     }
     if (kind === 'move' || kind === 'resize') showBoxUI(b);
+    const pg = S.pages[b.page];
+    if (pg) renderInk(pg);
   }));
 }
 function freezeActive() {
@@ -1398,6 +1425,8 @@ function activateBox(b) {
           try { activeBox.api.setBase64(b.pendingFile); } catch (_) {}
           b.pendingFile = '';
         }
+        watchView(activeBox.api);
+        syncBoxView(true);
       }
     }
   };
