@@ -222,7 +222,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v11';
+const BUILD = 'v12';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -336,15 +336,18 @@ function drawPts(ctx, p, color, bw, ex) {
 }
 const boxById = id => S.boxes.find(b => b.id === id);
 const boxKey = b => b.viewKey + '|' + b.x + ',' + b.y + ',' + b.w + ',' + b.h;
+// 지오지브라가 알려주는 화면 폭(왼쪽 여백 + 그래픽 화면 폭)이 창 폭과 같다는 점을 이용해
+// 픽셀 단위 차이(고해상도 화면, 내부 도구막대 등)를 자동으로 보정한다
+const boxScale = b => b.w / Math.max(1, b.view.VW);
 // 지오지브라 좌표 → 페이지 좌표
 function boxToPage(b, x, y) {
-  const v = b.view, cx = b.w / v.W, cy = b.h / v.H;
-  return [b.x + (v.L + (x - v.xMin) / v.ix) * cx, b.y + (v.T + v.h - (y - v.yMin) / v.iy) * cy];
+  const v = b.view, c = boxScale(b);
+  return [b.x + (v.L + (x - v.xMin) / v.ix) * c, b.y + (v.T + v.h - (y - v.yMin) / v.iy) * c];
 }
 // 페이지 좌표 → 지오지브라 좌표
 function pageToBox(b, px, py) {
-  const v = b.view, cx = b.w / v.W, cy = b.h / v.H;
-  const sx = (px - b.x) / cx, sy = (py - b.y) / cy;
+  const v = b.view, c = boxScale(b);
+  const sx = (px - b.x) / c, sy = (py - b.y) / c;
   return [v.xMin + (sx - v.L) * v.ix, v.yMin + (v.T + v.h - sy) * v.iy];
 }
 // 화면(페이지 좌표)에서의 점 목록 — 창 소속 필기는 그 창의 현재 화면에 맞춰 변환
@@ -1247,11 +1250,11 @@ function readBoxView(api, b) {
   try {
     const q = JSON.parse(api.getViewProperties(1));
     const v = {
-      L: (+q.left) || 0, T: (+q.top) || 0, h: +q.height,
-      ix: +q.invXscale, iy: +q.invYscale, xMin: +q.xMin, yMin: +q.yMin,
-      W: Math.max(1, b.w * S.zoom), H: Math.max(1, b.h * S.zoom)
+      L: (+q.left) || 0, T: (+q.top) || 0, h: +q.height, w: +q.width,
+      ix: +q.invXscale, iy: +q.invYscale, xMin: +q.xMin, yMin: +q.yMin
     };
-    if (!(v.ix > 0 && v.iy > 0 && v.h > 0 && isFinite(v.xMin) && isFinite(v.yMin))) return null;
+    if (!(v.ix > 0 && v.iy > 0 && v.h > 0 && v.w > 0 && isFinite(v.xMin) && isFinite(v.yMin))) return null;
+    v.VW = v.L + v.w;   // 창 폭에 해당하는 지오지브라 쪽 픽셀 수
     return v;
   } catch (_) { return null; }
 }
