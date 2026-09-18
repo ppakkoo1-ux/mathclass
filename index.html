@@ -213,6 +213,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
+const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
   draw: '필기: 모든 입력이 필기가 됩니다 (이 모드에서는 손가락 스크롤이 안 됩니다)',
@@ -972,36 +973,73 @@ function layout() {
   placeSelBar();
 }
 function release(p) {
+  p.gen = (p.gen || 0) + 1;
   if (p.task) { try { p.task.cancel(); } catch (_) {} p.task = null; }
   p.rendered = false;
   p.pdfc.width = 0; p.pdfc.height = 0;
   p.inkc.width = 0; p.inkc.height = 0;
 }
+// 캔버스 한 장이 너무 커지지 않도록 배율 제한 (모바일 사파리 캔버스 한도)
+const MAX_AREA = 4.2e6;
+function pixScale(p) {
+  let k = DPR;
+  const area = p.w * S.zoom * p.h * S.zoom;
+  if (area * k * k > MAX_AREA) k = Math.max(0.75, Math.sqrt(MAX_AREA / area));
+  return k;
+}
 function sizeInk(p) {
-  const w = Math.max(1, Math.round(p.w * S.zoom * DPR)), h = Math.max(1, Math.round(p.h * S.zoom * DPR));
+  const k = pixScale(p);
+  const w = Math.max(1, Math.round(p.w * S.zoom * k)), h = Math.max(1, Math.round(p.h * S.zoom * k));
   if (p.inkc.width === w && p.inkc.height === h) return;
   p.inkc.width = w; p.inkc.height = h;
-  p.ictx.setTransform(DPR * S.zoom, 0, 0, DPR * S.zoom, 0, 0);
+  p.ictx.setTransform(k * S.zoom, 0, 0, k * S.zoom, 0, 0);
   renderInk(p);
 }
+let renderingNow = 0;
+const renderWait = [];
 async function renderPdf(p) {
-  if (p.rendered || p.task) return;
-  const scale = S.zoom * DPR;
+  if (p.rendered || p.task || p.pending) return;
+  if (renderingNow >= 2) {
+    p.pending = true;
+    renderWait.push(p);
+    return;
+  }
+  p.pending = false;
+  renderingNow++;
+  const gen = p.gen || 0;
+  const scale = S.zoom * pixScale(p);
   const vp = p.pageObj.getViewport({ scale });
   p.pdfc.width = Math.round(vp.width);
   p.pdfc.height = Math.round(vp.height);
-  const task = p.pageObj.render({ canvasContext: p.pdfc.getContext('2d'), viewport: vp });
+  const ctx = p.pdfc.getContext('2d');
+  const task = p.pageObj.render({ canvasContext: ctx, viewport: vp });
   p.task = task;
-  try { await task.promise; p.rendered = true; } catch (_) {}
-  p.task = null;
+  let ok = false;
+  try { await task.promise; ok = true; } catch (_) {}
+  if (p.gen === gen) {
+    if (ok) p.rendered = true;
+    else { p.rendered = false; p.pdfc.width = 0; p.pdfc.height = 0; }   // 중간에 끊긴 그림은 남기지 않음
+    p.task = null;
+  }
+  renderingNow--;
+  while (renderWait.length) {
+    const next = renderWait.shift();
+    next.pending = false;
+    if (!isNear(next)) continue;
+    renderPdf(next);
+    break;
+  }
+}
+function isNear(p) {
+  const vr = viewer.getBoundingClientRect();
+  const margin = vr.height * 0.8;
+  const r = p.el.getBoundingClientRect();
+  return r.bottom > vr.top - margin && r.top < vr.bottom + margin;
 }
 function updateVisible() {
   if (!S.pages.length) return;
-  const vr = viewer.getBoundingClientRect();
-  const margin = vr.height * 1.2;
   for (const p of S.pages) {
-    const r = p.el.getBoundingClientRect();
-    const near = r.bottom > vr.top - margin && r.top < vr.bottom + margin;
+    const near = isNear(p);
     if (near) {
       sizeInk(p);
       renderPdf(p);
@@ -1017,7 +1055,12 @@ viewer.addEventListener('scroll', () => {
 });
 
 async function loadPdfFromB64(b64, reset) {
-  const doc = await window.pdfjsLib.getDocument({ data: b64ToBytes(b64) }).promise;
+  const doc = await window.pdfjsLib.getDocument({
+    data: b64ToBytes(b64),
+    cMapUrl: PDFJS_BASE + 'cmaps/',          // 한글 등 비라틴 문자
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_BASE + 'standard_fonts/'   // 글꼴이 내장되지 않은 PDF
+  }).promise;
   S.doc = doc;
   if (reset) {
     S.strokes = []; S.sel.clear(); S.undo = []; S.redo = [];
@@ -1039,7 +1082,7 @@ async function loadPdfFromB64(b64, reset) {
     const no = document.createElement('div'); no.className = 'pageno'; no.textContent = i + ' / ' + doc.numPages;
     el.append(pdfc, boxes, inkc, no);
     pagesEl.appendChild(el);
-    S.pages.push({ num: i, pageObj: page, w: vp.width, h: vp.height, el, pdfc, inkc, ictx: inkc.getContext('2d'), boxesEl: boxes, rendered: false, task: null });
+    S.pages.push({ num: i, pageObj: page, w: vp.width, h: vp.height, el, pdfc, inkc, ictx: inkc.getContext('2d'), boxesEl: boxes, rendered: false, task: null, gen: 0, pending: false });
   }
   emptyEl.style.display = 'none';
   for (const b of S.boxes) if (S.pages[b.page]) { S.pages[b.page].boxesEl.appendChild(b.el); }
@@ -1416,9 +1459,9 @@ function addScript(src, onload) {
   s.onerror = () => toast('스크립트를 불러오지 못했습니다: ' + src);
   document.head.appendChild(s);
 }
-addScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', () => {
+addScript(PDFJS_BASE + 'build/pdf.min.js', () => {
   if (window.pdfjsLib) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'build/pdf.worker.min.js';
   }
 });
 addScript('https://www.geogebra.org/apps/deployggb.js');
