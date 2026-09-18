@@ -63,6 +63,7 @@ button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 .wbtn i{display:block;border-radius:50%;background:currentColor}
 .wbtn.active{background:var(--active);color:var(--active-text)}
 #zoomPct{min-width:56px;text-align:center;font-size:13px;color:var(--muted)}
+#ver{font-size:12px;opacity:.7}
 
 #viewer{flex:1 1 auto;min-height:0;overflow:auto;position:relative;-webkit-overflow-scrolling:touch}
 #pages{transform-origin:0 0;padding:16px 0 60px;display:flex;flex-direction:column;align-items:center;gap:16px;min-height:100%}
@@ -74,18 +75,22 @@ button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 .pageno{position:absolute;right:6px;bottom:4px;z-index:4;font-size:11px;color:#98a1b3;pointer-events:none}
 
 .ggbbox{position:absolute;background:#fff;border:1px solid rgba(43,89,195,.35);border-radius:6px;
-  box-shadow:0 3px 12px rgba(0,0,0,.14);overflow:hidden;display:flex;flex-direction:column}
+  box-shadow:0 3px 12px rgba(0,0,0,.14);overflow:hidden}
 .ggbbox.live{border-color:var(--active)}
-.bxhead,.bxresize{opacity:.14;transition:opacity .15s}
+.bxhead,.bxresize{opacity:0;pointer-events:none;transition:opacity .15s}
 .ggbbox.ui-show .bxhead,.ggbbox.ui-show .bxresize,
-body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1}
-.bxhead{height:34px;flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:0 4px;
-  background:var(--active);color:#fff;font-size:12px;touch-action:none;cursor:move;-webkit-user-select:none;user-select:none}
+body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
+.bxhead{position:absolute;left:0;right:0;top:0;height:34px;z-index:2;display:flex;align-items:center;gap:4px;padding:0 4px;
+  background:rgba(43,89,195,.92);color:#fff;font-size:12px;touch-action:none;cursor:move;-webkit-user-select:none;user-select:none}
 .bxhead .t{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
 .bxhead button{height:26px;padding:0 8px;border:0;border-radius:6px;background:rgba(255,255,255,.22);color:#fff;font-size:12px;cursor:pointer}
-.bxbody{flex:1 1 auto;position:relative;background:#fff}
+.bxbody{position:absolute;inset:0;background:#fff}
 .bxbody img{width:100%;height:100%;display:block;object-fit:fill}
 .bxbody .host{width:100%;height:100%}
+.bxguard{position:absolute;inset:0;z-index:1;pointer-events:none}
+.ggbbox.live .bxguard{pointer-events:auto}
+.ggbbox.live.manip .bxguard,body.mode-ggb .ggbbox.live .bxguard{pointer-events:none}
+.ggbbox.live.manip{box-shadow:0 0 0 2px var(--active),0 3px 12px rgba(0,0,0,.2)}
 .bxresize{position:absolute;right:0;bottom:0;width:28px;height:28px;cursor:nwse-resize;touch-action:none;
   background:linear-gradient(135deg, transparent 50%, var(--active) 50%);opacity:.75}
 
@@ -186,7 +191,7 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1}
 
   <main id="viewer">
     <div id="pages"></div>
-    <div id="empty">PDF를 열어 시작하세요.<br>필기와 지오지브라 창은 저장 파일 하나에 PDF와 함께 담깁니다.</div>
+    <div id="empty">PDF를 열어 시작하세요.<br>필기와 지오지브라 창은 저장 파일 하나에 PDF와 함께 담깁니다.<br><span id="ver"></span></div>
   </main>
 </div>
 
@@ -216,6 +221,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
+const BUILD = 'v7';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1163,10 +1169,16 @@ async function openPdfFile(file) {
 }
 
 /* ===================== 지오지브라 창 ===================== */
+function setManip(b, v) {
+  b.manip = !!v;
+  b.el.classList.toggle('manip', b.manip);
+  const btn = b.el.querySelector('.bmani');
+  if (btn) btn.textContent = b.manip ? '필기' : '조작';
+}
 function showBoxUI(b) {
   b.el.classList.add('ui-show');
   clearTimeout(b.uiTimer);
-  b.uiTimer = setTimeout(() => b.el.classList.remove('ui-show'), 3000);
+  b.uiTimer = setTimeout(() => b.el.classList.remove('ui-show'), 4000);
 }
 function placeBox(b) {
   if (!b.el) return;
@@ -1190,13 +1202,18 @@ function buildBoxEl(b) {
   const el = document.createElement('div');
   el.className = 'ggbbox';
   el.innerHTML =
-    '<div class="bxhead"><span class="t">지오지브라</span><button class="bfile">파일</button><button class="bact">편집</button><button class="bdel">삭제</button></div>' +
-    '<div class="bxbody"></div><div class="bxresize"></div>';
+    '<div class="bxhead"><span class="t">지오지브라</span><button class="bmani">조작</button><button class="bfile">파일</button><button class="bact">편집</button><button class="bdel">삭제</button></div>' +
+    '<div class="bxbody"></div><div class="bxguard"></div><div class="bxresize"></div>';
   b.el = el;
   b.body = el.querySelector('.bxbody');
   (S.pages[b.page] || S.pages[0]).boxesEl.appendChild(el);
   el.querySelector('.bact').addEventListener('click', () => activateBox(b));
   el.querySelector('.bfile').addEventListener('click', () => { ggbFileTarget = b; ggbFileInput.click(); });
+  el.querySelector('.bmani').addEventListener('click', () => {
+    if (!(activeBox && activeBox.b === b)) { activateBox(b); return; }
+    setManip(b, !b.manip);
+    toast(b.manip ? '이 창은 지오지브라 조작 상태입니다 (펜도 조작).' : '이 창 위에서 필기합니다.');
+  });
   el.querySelector('.bdel').addEventListener('click', () => deleteBox(b));
   el.addEventListener('pointerdown', e => {
     if (e.pointerType === 'pen') return;
@@ -1232,15 +1249,10 @@ function dragBox(b, handle, kind) {
     if (!d || e.pointerId !== d.pid) return;
     d = null;
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
-      activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom - 34));
-      zoomFit(activeBox.api);
+      activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
     }
     if (kind === 'move' || kind === 'resize') showBoxUI(b);
   }));
-}
-function zoomFit(api) {
-  if (!api) return;
-  setTimeout(() => { try { api.evalCommand('ZoomFit()'); } catch (_) {} }, 250);
 }
 function freezeActive() {
   if (!activeBox) return;
@@ -1254,6 +1266,7 @@ function freezeActive() {
     try { if (typeof api.remove === 'function') api.remove(); } catch (_) {}
   }
   activeBox = null;
+  setManip(b, false);
   b.el.classList.remove('live');
   b.body.innerHTML = '';
   renderBoxBody(b);
@@ -1273,10 +1286,11 @@ function activateBox(b) {
   b.body.appendChild(host);
   b.el.classList.add('live');
   activeBox = { b, api: null };
+  setManip(b, true);
   const params = {
     appName: 'geometry', language: 'ko', borderColor: '#FFFFFF',
     width: Math.max(160, Math.round(b.w * S.zoom)),
-    height: Math.max(120, Math.round(b.h * S.zoom - 34)),
+    height: Math.max(120, Math.round(b.h * S.zoom)),
     showMenuBar: false, showAlgebraInput: false,
     appletOnLoad: api => {
       if (activeBox && activeBox.b === b) {
@@ -1285,7 +1299,6 @@ function activateBox(b) {
           try { activeBox.api.setBase64(b.pendingFile); } catch (_) {}
           b.pendingFile = '';
         }
-        zoomFit(activeBox.api);
       }
     }
   };
@@ -1334,7 +1347,7 @@ ggbFileInput.addEventListener('change', () => {
     b.state = b64;
     b.png = '';
     if (activeBox && activeBox.b === b && activeBox.api) {
-      try { activeBox.api.setBase64(b64); zoomFit(activeBox.api); } catch (_) { toast('파일을 열지 못했습니다.'); }
+      try { activeBox.api.setBase64(b64); } catch (_) { toast('파일을 열지 못했습니다.'); }
     } else {
       b.pendingFile = b64;
       activateBox(b);
@@ -1578,6 +1591,8 @@ setColor(COLORS[0]);
 setWidth(WIDTHS[1]);
 placeQuick();
 updateBtns();
+$('ver').textContent = BUILD;
+zoomPct.title = BUILD;
 
 function addScript(src, onload) {
   const s = document.createElement('script');
