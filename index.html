@@ -74,9 +74,10 @@ button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 .page .inkc{z-index:3;pointer-events:none}
 .pageno{position:absolute;right:6px;bottom:4px;z-index:4;font-size:11px;color:#98a1b3;pointer-events:none}
 
-.ggbbox{position:absolute;background:#fff;border:1px solid rgba(43,89,195,.35);border-radius:6px;
-  box-shadow:0 3px 12px rgba(0,0,0,.14);overflow:hidden}
-.ggbbox.live{border-color:var(--active)}
+.ggbbox{position:absolute;background:#fff;border:1px solid transparent;border-radius:6px;
+  box-shadow:none;overflow:hidden;transition:border-color .15s, box-shadow .15s}
+.ggbbox.ui-show,.ggbbox.live.manip,body.mode-ggb .ggbbox{
+  border-color:var(--active);box-shadow:0 3px 12px rgba(0,0,0,.14)}
 .bxhead,.bxresize{opacity:0;pointer-events:none;transition:opacity .15s}
 .ggbbox.ui-show .bxhead,.ggbbox.ui-show .bxresize,
 body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
@@ -90,7 +91,7 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
 .bxguard{position:absolute;inset:0;z-index:1;pointer-events:none}
 .ggbbox.live .bxguard{pointer-events:auto}
 .ggbbox.live.manip .bxguard,body.mode-ggb .ggbbox.live .bxguard{pointer-events:none}
-.ggbbox.live.manip{box-shadow:0 0 0 2px var(--active),0 3px 12px rgba(0,0,0,.2)}
+.ggbbox.live.manip.ui-show{box-shadow:0 0 0 2px var(--active),0 3px 12px rgba(0,0,0,.2)}
 .bxresize{position:absolute;right:0;bottom:0;width:28px;height:28px;cursor:nwse-resize;touch-action:none;
   background:linear-gradient(135deg, transparent 50%, var(--active) 50%);opacity:.75}
 
@@ -221,7 +222,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v7';
+const BUILD = 'v8';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
