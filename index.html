@@ -67,15 +67,18 @@ button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 #viewer{flex:1 1 auto;min-height:0;overflow:auto;position:relative;-webkit-overflow-scrolling:touch}
 #pages{transform-origin:0 0;padding:16px 0 60px;display:flex;flex-direction:column;align-items:center;gap:16px;min-height:100%}
 .page{position:relative;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.18);border:1px solid var(--page-edge);flex:0 0 auto}
-.page canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+.page canvas{position:absolute;left:0;top:0;display:block}
 .page .pdfc{z-index:1}
 .page .boxes{position:absolute;inset:0;z-index:2}
 .page .inkc{z-index:3;pointer-events:none}
 .pageno{position:absolute;right:6px;bottom:4px;z-index:4;font-size:11px;color:#98a1b3;pointer-events:none}
 
-.ggbbox{position:absolute;background:#fff;border:1px solid var(--active);border-radius:6px;
-  box-shadow:0 3px 12px rgba(0,0,0,.2);overflow:hidden;display:flex;flex-direction:column}
-.ggbbox.live{border-width:2px}
+.ggbbox{position:absolute;background:#fff;border:1px solid rgba(43,89,195,.35);border-radius:6px;
+  box-shadow:0 3px 12px rgba(0,0,0,.14);overflow:hidden;display:flex;flex-direction:column}
+.ggbbox.live{border-color:var(--active)}
+.bxhead,.bxresize{opacity:.14;transition:opacity .15s}
+.ggbbox.ui-show .bxhead,.ggbbox.ui-show .bxresize,
+body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1}
 .bxhead{height:34px;flex:0 0 auto;display:flex;align-items:center;gap:4px;padding:0 4px;
   background:var(--active);color:#fff;font-size:12px;touch-action:none;cursor:move;-webkit-user-select:none;user-select:none}
 .bxhead .t{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
@@ -912,7 +915,7 @@ window.addEventListener('pointermove', e => {
 
 /* ===================== 확대/축소 ===================== */
 function setZoom(z, ax, ay) {
-  z = Math.min(3, Math.max(0.4, z));
+  z = Math.min(6, Math.max(0.3, z));
   if (Math.abs(z - S.zoom) < 0.001) return;
   const vr = viewer.getBoundingClientRect();
   if (ax == null) { ax = vr.left + vr.width / 2; ay = vr.top + vr.height / 2; }
@@ -934,8 +937,9 @@ function inViewerRect(x, y) {
   const r = viewer.getBoundingClientRect();
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
+const inLiveBox = t => t instanceof Node && !!(t.closest && t.closest('.ggbbox.live'));
 window.addEventListener('touchstart', e => {
-  if (!S.doc || e.touches.length !== 2 || inUI(e.target)) return;
+  if (!S.doc || e.touches.length !== 2 || inUI(e.target) || inLiveBox(e.target)) return;
   if (!inViewerRect(e.touches[0].clientX, e.touches[0].clientY)) return;
   if (e.cancelable) e.preventDefault();
   if (act) cancelAction();
@@ -972,7 +976,9 @@ function layout() {
   for (const p of S.pages) {
     p.el.style.width = (p.w * S.zoom) + 'px';
     p.el.style.height = (p.h * S.zoom) + 'px';
-    release(p);
+    // 기존 그림은 그대로 두고 크기만 늘려 둔다 (새로 그려질 때까지 화면이 비지 않도록)
+    if (p.frontReg) styleCanvas(p.front, p.frontReg);
+    if (p.inkReg) sizeInk(p);
   }
   for (const b of S.boxes) placeBox(b);
   zoomPct.textContent = Math.round(S.zoom * 100) + '%';
@@ -983,50 +989,91 @@ function release(p) {
   p.gen = (p.gen || 0) + 1;
   if (p.task) { try { p.task.cancel(); } catch (_) {} p.task = null; }
   p.rendered = false;
-  p.pdfc.width = 0; p.pdfc.height = 0;
+  p.pending = false;
+  p.front.width = 0; p.front.height = 0;
+  p.back.width = 0; p.back.height = 0;
   p.inkc.width = 0; p.inkc.height = 0;
+  p.frontReg = null; p.inkReg = null;
 }
 // 캔버스 한 장이 너무 커지지 않도록 배율 제한 (모바일 사파리 캔버스 한도)
-const MAX_AREA = 4.2e6;
-function pixScale(p) {
+const MAX_AREA = 6e6;
+function pixScale(reg) {
   let k = DPR;
-  const area = p.w * S.zoom * p.h * S.zoom;
-  if (area * k * k > MAX_AREA) k = Math.max(0.75, Math.sqrt(MAX_AREA / area));
+  const area = reg.w * S.zoom * reg.h * S.zoom;
+  if (area * k * k > MAX_AREA) k = Math.max(0.6, Math.sqrt(MAX_AREA / area));
   return k;
 }
+// 화면에 보이는 부분만 페이지 좌표로 계산 (pad: 여유 화면 픽셀)
+function regionFor(p, pad) {
+  const vr = viewer.getBoundingClientRect(), r = p.el.getBoundingClientRect();
+  const z = S.zoom;
+  const x0 = Math.max(0, (vr.left - pad - r.left) / z);
+  const y0 = Math.max(0, (vr.top - pad - r.top) / z);
+  const x1 = Math.min(p.w, (vr.right + pad - r.left) / z);
+  const y1 = Math.min(p.h, (vr.bottom + pad - r.top) / z);
+  if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+const contains = (a, b) => a && b && a.x <= b.x + 0.5 && a.y <= b.y + 0.5 &&
+  a.x + a.w >= b.x + b.w - 0.5 && a.y + a.h >= b.y + b.h - 0.5;
+function styleCanvas(c, reg) {
+  c.style.left = (reg.x * S.zoom) + 'px';
+  c.style.top = (reg.y * S.zoom) + 'px';
+  c.style.width = (reg.w * S.zoom) + 'px';
+  c.style.height = (reg.h * S.zoom) + 'px';
+}
+function ensureInk(p) {
+  const need = regionFor(p, 120);
+  if (!need) return;
+  if (p.inkReg && p.inkZoom === S.zoom && contains(p.inkReg, need)) return;
+  sizeInk(p);
+}
 function sizeInk(p) {
-  const k = pixScale(p);
-  const w = Math.max(1, Math.round(p.w * S.zoom * k)), h = Math.max(1, Math.round(p.h * S.zoom * k));
-  if (p.inkc.width === w && p.inkc.height === h) return;
-  p.inkc.width = w; p.inkc.height = h;
-  p.ictx.setTransform(k * S.zoom, 0, 0, k * S.zoom, 0, 0);
+  const reg = regionFor(p, 400);
+  if (!reg) return;
+  const k = pixScale(reg), z = S.zoom;
+  p.inkc.width = Math.max(1, Math.round(reg.w * z * k));
+  p.inkc.height = Math.max(1, Math.round(reg.h * z * k));
+  styleCanvas(p.inkc, reg);
+  p.inkReg = reg; p.inkZoom = z;
+  p.ictx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
   renderInk(p);
 }
 let renderingNow = 0;
 const renderWait = [];
 async function renderPdf(p) {
-  if (p.rendered || p.task || p.pending) return;
-  if (renderingNow >= 2) {
-    p.pending = true;
-    renderWait.push(p);
-    return;
-  }
+  if (p.task || p.pending) return;
+  const need = regionFor(p, 120);
+  if (!need) return;
+  if (p.frontReg && p.frontReg.zoom === S.zoom && contains(p.frontReg, need)) return;
+  if (renderingNow >= 2) { p.pending = true; renderWait.push(p); return; }
   p.pending = false;
   renderingNow++;
-  const gen = p.gen || 0;
-  const scale = S.zoom * pixScale(p);
-  const vp = p.pageObj.getViewport({ scale });
-  p.pdfc.width = Math.round(vp.width);
-  p.pdfc.height = Math.round(vp.height);
-  const ctx = p.pdfc.getContext('2d');
-  const task = p.pageObj.render({ canvasContext: ctx, viewport: vp });
+  const gen = p.gen;
+  const reg = regionFor(p, 400) || need;
+  const k = pixScale(reg), sc = S.zoom * k;
+  const back = p.back;
+  back.width = Math.max(1, Math.round(reg.w * sc));
+  back.height = Math.max(1, Math.round(reg.h * sc));
+  const vp = p.pageObj.getViewport({ scale: sc });
+  const task = p.pageObj.render({
+    canvasContext: back.getContext('2d'),
+    viewport: vp,
+    transform: [1, 0, 0, 1, -reg.x * sc, -reg.y * sc]
+  });
   p.task = task;
   let ok = false;
   try { await task.promise; ok = true; } catch (_) {}
-  if (p.gen === gen) {
-    if (ok) p.rendered = true;
-    else { p.rendered = false; p.pdfc.width = 0; p.pdfc.height = 0; }   // 중간에 끊긴 그림은 남기지 않음
-    p.task = null;
+  p.task = null;
+  if (p.gen === gen && ok) {
+    // 새 그림이 완성된 뒤에 바꿔치기 — 지우고 다시 그리는 깜빡임이 없음
+    styleCanvas(back, reg);
+    back.style.visibility = 'visible';
+    p.front.style.visibility = 'hidden';
+    p.back = p.front;
+    p.front = back;
+    p.frontReg = { x: reg.x, y: reg.y, w: reg.w, h: reg.h, zoom: S.zoom };
+    p.rendered = true;
   }
   renderingNow--;
   while (renderWait.length) {
@@ -1048,9 +1095,9 @@ function updateVisible() {
   for (const p of S.pages) {
     const near = isNear(p);
     if (near) {
-      sizeInk(p);
+      ensureInk(p);
       renderPdf(p);
-    } else if (p.rendered || p.inkc.width) {
+    } else if (p.frontReg || p.inkc.width) {
       if (!(act && S.pages[act.pi] === p)) release(p);
     }
   }
@@ -1084,12 +1131,18 @@ async function loadPdfFromB64(b64, reset) {
     const el = document.createElement('div');
     el.className = 'page';
     const pdfc = document.createElement('canvas'); pdfc.className = 'pdfc';
+    const pdfc2 = document.createElement('canvas'); pdfc2.className = 'pdfc'; pdfc2.style.visibility = 'hidden';
     const boxes = document.createElement('div'); boxes.className = 'boxes';
     const inkc = document.createElement('canvas'); inkc.className = 'inkc';
     const no = document.createElement('div'); no.className = 'pageno'; no.textContent = i + ' / ' + doc.numPages;
-    el.append(pdfc, boxes, inkc, no);
+    el.append(pdfc, pdfc2, boxes, inkc, no);
     pagesEl.appendChild(el);
-    S.pages.push({ num: i, pageObj: page, w: vp.width, h: vp.height, el, pdfc, inkc, ictx: inkc.getContext('2d'), boxesEl: boxes, rendered: false, task: null, gen: 0, pending: false });
+    S.pages.push({
+      num: i, pageObj: page, w: vp.width, h: vp.height, el,
+      front: pdfc, back: pdfc2, frontReg: null, inkReg: null, inkZoom: 0,
+      inkc, ictx: inkc.getContext('2d'), boxesEl: boxes,
+      rendered: false, task: null, gen: 0, pending: false
+    });
   }
   emptyEl.style.display = 'none';
   for (const b of S.boxes) if (S.pages[b.page]) { S.pages[b.page].boxesEl.appendChild(b.el); }
@@ -1110,6 +1163,11 @@ async function openPdfFile(file) {
 }
 
 /* ===================== 지오지브라 창 ===================== */
+function showBoxUI(b) {
+  b.el.classList.add('ui-show');
+  clearTimeout(b.uiTimer);
+  b.uiTimer = setTimeout(() => b.el.classList.remove('ui-show'), 3000);
+}
 function placeBox(b) {
   if (!b.el) return;
   const z = S.zoom;
@@ -1140,6 +1198,10 @@ function buildBoxEl(b) {
   el.querySelector('.bact').addEventListener('click', () => activateBox(b));
   el.querySelector('.bfile').addEventListener('click', () => { ggbFileTarget = b; ggbFileInput.click(); });
   el.querySelector('.bdel').addEventListener('click', () => deleteBox(b));
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'pen') return;
+    showBoxUI(b);
+  }, { capture: true });
   b.body.addEventListener('pointerdown', e => {
     if (activeBox && activeBox.b === b) return;
     if (e.pointerType === 'pen' && S.mode === 'auto') return;
@@ -1171,8 +1233,14 @@ function dragBox(b, handle, kind) {
     d = null;
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
       activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom - 34));
+      zoomFit(activeBox.api);
     }
+    if (kind === 'move' || kind === 'resize') showBoxUI(b);
   }));
+}
+function zoomFit(api) {
+  if (!api) return;
+  setTimeout(() => { try { api.evalCommand('ZoomFit()'); } catch (_) {} }, 250);
 }
 function freezeActive() {
   if (!activeBox) return;
@@ -1213,7 +1281,11 @@ function activateBox(b) {
     appletOnLoad: api => {
       if (activeBox && activeBox.b === b) {
         activeBox.api = api || window.ggbApplet;
-        if (b.pendingFile) { try { activeBox.api.setBase64(b.pendingFile); } catch (_) {} b.pendingFile = ''; }
+        if (b.pendingFile) {
+          try { activeBox.api.setBase64(b.pendingFile); } catch (_) {}
+          b.pendingFile = '';
+        }
+        zoomFit(activeBox.api);
       }
     }
   };
@@ -1262,7 +1334,7 @@ ggbFileInput.addEventListener('change', () => {
     b.state = b64;
     b.png = '';
     if (activeBox && activeBox.b === b && activeBox.api) {
-      try { activeBox.api.setBase64(b64); } catch (_) { toast('파일을 열지 못했습니다.'); }
+      try { activeBox.api.setBase64(b64); zoomFit(activeBox.api); } catch (_) { toast('파일을 열지 못했습니다.'); }
     } else {
       b.pendingFile = b64;
       activateBox(b);
@@ -1334,6 +1406,7 @@ async function loadFile(file) {
 function setMode(m, silent) {
   if (act) return;
   S.mode = m;
+  document.body.classList.toggle('mode-ggb', m === 'ggb');
   document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
   if (!silent) toast(MODE_MSG[m]);
 }
