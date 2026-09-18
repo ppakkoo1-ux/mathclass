@@ -222,7 +222,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v9';
+const BUILD = 'v10';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -334,11 +334,54 @@ function drawPts(ctx, p, color, bw, ex) {
   }
   ctx.restore();
 }
-function strokeBB(o) {
-  if (!o._bb || o._n !== o.pts.length) { o._bb = bboxOf(o.pts); o._n = o.pts.length; }
-  return o._bb;
+const boxById = id => S.boxes.find(b => b.id === id);
+const boxKey = b => b.viewKey + '|' + b.x + ',' + b.y + ',' + b.w + ',' + b.h;
+// 지오지브라 좌표 → 페이지 좌표
+function boxToPage(b, x, y) {
+  const v = b.view, cx = b.w / v.W, cy = b.h / v.H;
+  return [b.x + (v.L + (x - v.xMin) / v.ix) * cx, b.y + (v.T + v.h - (y - v.yMin) / v.iy) * cy];
 }
-const invalidate = o => { o._bb = null; o._n = -1; };
+// 페이지 좌표 → 지오지브라 좌표
+function pageToBox(b, px, py) {
+  const v = b.view, cx = b.w / v.W, cy = b.h / v.H;
+  const sx = (px - b.x) / cx, sy = (py - b.y) / cy;
+  return [v.xMin + (sx - v.L) * v.ix, v.yMin + (v.T + v.h - sy) * v.iy];
+}
+// 화면(페이지 좌표)에서의 점 목록 — 창 소속 필기는 그 창의 현재 화면에 맞춰 변환
+function pagePts(o) {
+  if (!o.box) {
+    if (!o._bb || o._n !== o.pts.length) { o._bb = bboxOf(o.pts); o._n = o.pts.length; }
+    return o.pts;
+  }
+  const b = boxById(o.box);
+  if (!b || !b.view) return null;
+  const key = boxKey(b);
+  if (o._k !== key || o._n !== o.pts.length) {
+    o._p = o.pts.map(q => { const t = boxToPage(b, q[0], q[1]); return [t[0], t[1], q[2]]; });
+    o._bb = bboxOf(o._p);
+    o._k = key; o._n = o.pts.length;
+  }
+  return o._p;
+}
+function strokeBB(o) { pagePts(o); return o._bb; }
+const invalidate = o => { o._bb = null; o._k = null; o._n = -1; };
+function boxAt(pi, x, y) {
+  for (let i = S.boxes.length - 1; i >= 0; i--) {
+    const b = S.boxes[i];
+    if (b.page === pi && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
+  }
+  return null;
+}
+function clipBox(ctx, o) {
+  if (!o.box) return false;
+  const b = boxById(o.box);
+  if (!b) return false;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(b.x, b.y, b.w, b.h);
+  ctx.clip();
+  return true;
+}
 
 function renderInk(p) {
   const i = p.num - 1, ctx = p.ictx;
@@ -350,8 +393,12 @@ function renderInk(p) {
   const selOn = S.tool === 'select' && S.sel.size > 0;
   for (const o of S.strokes) {
     if (o.page !== i) continue;
-    if (selOn && S.sel.has(o.id)) drawPts(ctx, o.pts, GLOW, o.width, 10 / S.zoom);
-    drawPts(ctx, o.pts, o.color, o.width, 0);
+    const pts = pagePts(o);
+    if (!pts) continue;
+    const clipped = clipBox(ctx, o);
+    if (selOn && S.sel.has(o.id)) drawPts(ctx, pts, GLOW, o.width, 10 / S.zoom);
+    drawPts(ctx, pts, o.color, o.width, 0);
+    if (clipped) ctx.restore();
   }
   if (act && act.pi === i) {
     if (act.kind === 'lasso' && act.path.length > 1) {
@@ -434,9 +481,10 @@ function clearSel() { S.sel.clear(); selBar.classList.remove('show'); renderAllI
 
 /* ===================== 지우개 · 선택 ===================== */
 function hitStroke(o, x, y, r) {
-  const tt2 = r + o.width, bb = strokeBB(o);
+  const s = pagePts(o);
+  if (!s) return false;
+  const tt2 = r + o.width, bb = o._bb;
   if (!nearBB(bb, x, y, tt2)) return false;
-  const s = o.pts;
   if (s.length === 1) return Math.hypot(s[0][0] - x, s[0][1] - y) < tt2;
   for (let i = 1; i < s.length; i++) {
     if (segDist(x, y, s[i - 1][0], s[i - 1][1], s[i][0], s[i][1]) < tt2) return true;
@@ -498,11 +546,16 @@ function eraseAt(pi, x, y, a) {
   const out = [];
   let changed = false;
   for (const o of S.strokes) {
-    if (o.page !== pi || !nearBB(strokeBB(o), x, y, a.r + o.width)) { out.push(o); continue; }
-    const pieces = cutStroke(o.pts, x, y, a.r + o.width / 2, 1 / S.zoom);
+    const sp = o.page === pi ? pagePts(o) : null;
+    if (!sp || !nearBB(o._bb, x, y, a.r + o.width)) { out.push(o); continue; }
+    const pieces = cutStroke(sp, x, y, a.r + o.width / 2, 1 / S.zoom);
     if (!pieces) { out.push(o); continue; }
     changed = true;
-    for (const pc of pieces) out.push({ id: S.seq++, page: o.page, color: o.color, width: o.width, pts: pc });
+    const b = o.box ? boxById(o.box) : null;
+    for (const pc of pieces) {
+      const pts = (b && b.view) ? pc.map(q => { const t = pageToBox(b, q[0], q[1]); return [t[0], t[1], q[2]]; }) : pc;
+      out.push({ id: S.seq++, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts });
+    }
   }
   if (changed) S.strokes = out;
   return changed;
@@ -521,13 +574,15 @@ function selectByLasso(pi, path) {
   const pb = bboxOf(path);
   for (const o of S.strokes) {
     if (o.page !== pi) continue;
-    const b = strokeBB(o);
+    const sp = pagePts(o);
+    if (!sp) continue;
+    const b = o._bb;
     if (b.x1 < pb.x0 || b.x0 > pb.x1 || b.y1 < pb.y0 || b.y0 > pb.y1) continue;
-    const step = Math.max(1, Math.floor(o.pts.length / 60));
+    const step = Math.max(1, Math.floor(sp.length / 60));
     let tot = 0, inn = 0;
-    for (let i = 0; i < o.pts.length; i += step) {
+    for (let i = 0; i < sp.length; i += step) {
       tot++;
-      if (inPoly(o.pts[i][0], o.pts[i][1], path)) inn++;
+      if (inPoly(sp[i][0], sp[i][1], path)) inn++;
     }
     if (tot && inn / tot >= 0.5) S.sel.add(o.id);
   }
@@ -535,7 +590,13 @@ function selectByLasso(pi, path) {
 function translateSel(dx, dy) {
   for (const o of S.strokes) {
     if (!S.sel.has(o.id)) continue;
-    for (const p of o.pts) { p[0] += dx; p[1] += dy; }
+    const b = o.box ? boxById(o.box) : null;
+    if (b && b.view) {
+      const moved = pagePts(o).map(q => [q[0] + dx, q[1] + dy, q[2]]);
+      o.pts = moved.map(q => { const t = pageToBox(b, q[0], q[1]); return [t[0], t[1], q[2]]; });
+    } else {
+      for (const p of o.pts) { p[0] += dx; p[1] += dy; }
+    }
     invalidate(o);
   }
 }
@@ -704,7 +765,9 @@ function applyShape(a) {
       pts.push([shp.c[0] + shp.r * Math.cos(t), shp.c[1] + shp.r * Math.sin(t), p]);
     }
   }
-  a.o.pts = pts.map(q => [q[0] / z, q[1] / z, q[2]]);
+  const page = pts.map(q => [q[0] / z, q[1] / z, q[2]]);
+  a.ppts = page;
+  a.o.pts = a.box ? page.map(q => { const t = pageToBox(a.box, q[0], q[1]); return [t[0], t[1], q[2]]; }) : page;
   invalidate(a.o);
 }
 
@@ -763,11 +826,14 @@ function startAction(e) {
   }
   const p = pressureOf(e);
   const sc = screenPt(pi, e);
-  const o = { id: S.seq++, page: pi, color: S.color, width: S.width, pts: [[x, y, p]] };
+  const bx = boxAt(pi, x, y);
+  const useBox = (bx && bx.view) ? bx : null;
+  const first = useBox ? [...pageToBox(useBox, x, y), p] : [x, y, p];
+  const o = { id: S.seq++, page: pi, box: useBox ? useBox.id : 0, color: S.color, width: S.width, pts: [first] };
   pushUndo(snapshot());
   S.strokes.push(o);
   act = {
-    pid, pi, kind: 'pen', o, spts: [[sc[0], sc[1], p]],
+    pid, pi, kind: 'pen', o, box: useBox, ppts: [[x, y, p]], spts: [[sc[0], sc[1], p]],
     ptype: e.pointerType, t0: performance.now(), anchor: [sc[0], sc[1]], anchorIdx: 0, holdTimer: null, snapped: null
   };
   armHold();
@@ -785,8 +851,9 @@ function moveAction(e) {
     }
     const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
     const list = evs.length ? evs : [e];
-    const o = act.o, sp = act.spts, ctx = p.ictx;
+    const o = act.o, sp = act.spts, pp = act.ppts, ctx = p.ictx;
     ctx.save();
+    if (act.box) { ctx.beginPath(); ctx.rect(act.box.x, act.box.y, act.box.w, act.box.h); ctx.clip(); }
     setStyle(ctx, o.color);
     for (const ev of list) {
       const sc = screenPt(pi, ev);
@@ -794,8 +861,10 @@ function moveAction(e) {
       if (Math.hypot(sc[0] - last[0], sc[1] - last[1]) < 0.8) continue;
       const pr = pressureOf(ev);
       sp.push([sc[0], sc[1], pr]);
-      o.pts.push([sc[0] / z, sc[1] / z, pr]);
-      piece(ctx, o.pts, o.pts.length - 1, o.width, 0);
+      const px = sc[0] / z, py = sc[1] / z;
+      pp.push([px, py, pr]);
+      o.pts.push(act.box ? [...pageToBox(act.box, px, py), pr] : [px, py, pr]);
+      piece(ctx, pp, pp.length - 1, o.width, 0);
     }
     ctx.restore();
     const lp = sp[sp.length - 1];
@@ -832,8 +901,11 @@ function endAction() {
     clearTimeout(a.holdTimer);
     if (!a.snapped) {
       const ctx = p.ictx;
-      if (a.o.pts.length === 1) drawPts(ctx, a.o.pts, a.o.color, a.o.width, 0);
-      else { ctx.save(); setStyle(ctx, a.o.color); tail(ctx, a.o.pts, a.o.width, 0); ctx.restore(); }
+      ctx.save();
+      if (a.box) { ctx.beginPath(); ctx.rect(a.box.x, a.box.y, a.box.w, a.box.h); ctx.clip(); }
+      if (a.ppts.length === 1) drawPts(ctx, a.ppts, a.o.color, a.o.width, 0);
+      else { setStyle(ctx, a.o.color); tail(ctx, a.ppts, a.o.width, 0); }
+      ctx.restore();
     }
     invalidate(a.o);
     updateBtns();
@@ -1170,6 +1242,31 @@ async function openPdfFile(file) {
 }
 
 /* ===================== 지오지브라 창 ===================== */
+function readBoxView(api, b) {
+  if (!api || typeof api.getViewProperties !== 'function') return null;
+  try {
+    const q = JSON.parse(api.getViewProperties(1));
+    const v = {
+      L: (+q.left) || 0, T: (+q.top) || 0, h: +q.height,
+      ix: +q.invXscale, iy: +q.invYscale, xMin: +q.xMin, yMin: +q.yMin,
+      W: Math.max(1, b.w * S.zoom), H: Math.max(1, b.h * S.zoom)
+    };
+    if (!(v.ix > 0 && v.iy > 0 && v.h > 0 && isFinite(v.xMin) && isFinite(v.yMin))) return null;
+    return v;
+  } catch (_) { return null; }
+}
+function syncBoxView(force) {
+  if (!activeBox || !activeBox.api) return;
+  const b = activeBox.b;
+  const v = readBoxView(activeBox.api, b);
+  if (!v) return;
+  const key = JSON.stringify(v);
+  if (key === b.viewKey && !force) return;
+  b.view = v; b.viewKey = key;
+  const p = S.pages[b.page];
+  if (p) renderInk(p);
+}
+setInterval(() => syncBoxView(false), 250);
 function setManip(b, v) {
   b.manip = !!v;
   b.el.classList.toggle('manip', b.manip);
@@ -1259,6 +1356,7 @@ function freezeActive() {
   if (!activeBox) return;
   const { b, api } = activeBox;
   if (api) {
+    syncBoxView(true);
     try { b.state = api.getBase64(); } catch (_) {}
     try {
       const png = api.getPNGBase64(1, false, 72);
@@ -1308,8 +1406,17 @@ function activateBox(b) {
 }
 function deleteBox(b) {
   if (activeBox && activeBox.b === b) { activeBox = null; }
+  // 창에 붙어 있던 필기는 보이던 자리에 그대로 남긴다
+  for (const o of S.strokes) {
+    if (o.box !== b.id) continue;
+    const sp = pagePts(o);
+    if (sp) { o.pts = sp.map(q => [q[0], q[1], q[2]]); }
+    o.box = 0;
+    invalidate(o);
+  }
   b.el.remove();
   S.boxes = S.boxes.filter(x => x !== b);
+  renderAllInk();
 }
 function addBox() {
   if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
@@ -1324,7 +1431,7 @@ function addBox() {
     return [(cx - r.left) / S.zoom, (cy - r.top) / S.zoom];
   })();
   const w = Math.min(p.w * 0.7, 460), h = Math.min(p.h * 0.5, 380);
-  const b = { id: S.seq++, page: pi, x: Math.max(0, Math.min(p.w - w, x - w / 2)), y: Math.max(0, Math.min(p.h - h, y - h / 2)), w, h, state: '', png: '' };
+  const b = { id: S.seq++, page: pi, x: Math.max(0, Math.min(p.w - w, x - w / 2)), y: Math.max(0, Math.min(p.h - h, y - h / 2)), w, h, state: '', png: '', view: null, viewKey: '' };
   S.boxes.push(b);
   buildBoxEl(b);
   activateBox(b);
@@ -1372,8 +1479,8 @@ function saveFile() {
     try {
       const data = {
         v: 1, app: 'pdf-board', pdfName: S.pdfName, pdf: S.pdfB64, zoom: S.zoom,
-        strokes: S.strokes.map(o => ({ id: o.id, page: o.page, color: o.color, width: o.width, pts: o.pts })),
-        boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png }))
+        strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts })),
+        boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
       };
       const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
       const name = (S.pdfName.replace(/\.pdf$/i, '') || '수업자료') + '.board.json';
@@ -1400,9 +1507,9 @@ async function loadFile(file) {
     S.pdfB64 = data.pdf;
     S.zoom = data.zoom || 1;
     await loadPdfFromB64(S.pdfB64, true);
-    S.strokes = (data.strokes || []).map(o => ({ id: o.id, page: o.page, color: o.color, width: o.width, pts: o.pts }));
+    S.strokes = (data.strokes || []).map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts }));
     for (const bb of (data.boxes || [])) {
-      const b = { id: bb.id, page: bb.page, x: bb.x, y: bb.y, w: bb.w, h: bb.h, state: bb.state || '', png: bb.png || '' };
+      const b = { id: bb.id, page: bb.page, x: bb.x, y: bb.y, w: bb.w, h: bb.h, state: bb.state || '', png: bb.png || '', view: bb.view || null, viewKey: bb.viewKey || '' };
       S.boxes.push(b);
       buildBoxEl(b);
     }
