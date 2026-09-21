@@ -248,7 +248,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v14';
+const BUILD = 'v15';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1042,6 +1042,7 @@ function setZoom(z, ax, ay) {
   layout();
   viewer.scrollLeft = cx * z - (ax - vr.left);
   viewer.scrollTop = cy * z - (ay - vr.top);
+  saveViewPos();
 }
 function tdist(e) {
   const a = e.touches[0], b = e.touches[1];
@@ -1221,7 +1222,7 @@ function updateVisible() {
 let visRaf = 0;
 viewer.addEventListener('scroll', () => {
   if (visRaf) return;
-  visRaf = requestAnimationFrame(() => { visRaf = 0; updateVisible(); placeSelBar(); placeQuick(); });
+  visRaf = requestAnimationFrame(() => { visRaf = 0; updateVisible(); placeSelBar(); placeQuick(); saveViewPos(); });
 });
 
 async function loadPdfFromB64(b64, reset) {
@@ -1271,11 +1272,68 @@ async function openPdfFile(file) {
     S.pdfB64 = abToB64(buf);
     S.pdfName = file.name;
     await loadPdfFromB64(S.pdfB64, true);
-    toast(file.name + ' 열기 완료');
+    const pos = loadViewPos();
+    if (pos) { restoreView(pos.anchor, pos.zoom); toast(file.name + ' — 보던 자리에서 엽니다'); }
+    else toast(file.name + ' 열기 완료');
   } catch (err) {
     toast('PDF를 열지 못했습니다: ' + err.message);
   }
   busy(false);
+}
+
+/* ---------- 보던 위치 ---------- */
+function viewAnchor() {
+  if (!S.pages.length) return null;
+  const vr = viewer.getBoundingClientRect();
+  const cx = vr.left + vr.width / 2, cy = vr.top + vr.height / 2;
+  let pi = pageAtClient(cx, cy);
+  if (pi < 0) {
+    let bd = Infinity;
+    S.pages.forEach((p, i) => {
+      const r = p.el.getBoundingClientRect();
+      const d = Math.abs((r.top + r.bottom) / 2 - cy);
+      if (d < bd) { bd = d; pi = i; }
+    });
+  }
+  if (pi < 0) return null;
+  const r = S.pages[pi].el.getBoundingClientRect();
+  return { page: pi, u: (cx - r.left) / (r.width || 1), v: (cy - r.top) / (r.height || 1) };
+}
+function gotoAnchor(a) {
+  if (!a || !S.pages[a.page]) return;
+  const vr = viewer.getBoundingClientRect();
+  const r = S.pages[a.page].el.getBoundingClientRect();
+  viewer.scrollLeft += (r.left + a.u * r.width) - (vr.left + vr.width / 2);
+  viewer.scrollTop += (r.top + a.v * r.height) - (vr.top + vr.height / 2);
+  updateVisible();
+}
+function restoreView(anchor, zoom) {
+  if (zoom) { S.zoom = Math.min(6, Math.max(0.3, zoom)); layout(); }
+  requestAnimationFrame(() => {
+    gotoAnchor(anchor);
+    requestAnimationFrame(() => gotoAnchor(anchor));
+  });
+}
+// 같은 PDF를 다시 열면 보던 자리에서 이어보기
+const POSKEY = 'pdfBoard.pos:';
+let posTimer = null;
+function saveViewPos() {
+  if (!S.doc || !S.pdfName) return;
+  clearTimeout(posTimer);
+  posTimer = setTimeout(() => {
+    try {
+      const a = viewAnchor();
+      if (a) localStorage.setItem(POSKEY + S.pdfName, JSON.stringify({ anchor: a, zoom: S.zoom }));
+    } catch (_) {}
+  }, 700);
+}
+function loadViewPos() {
+  try {
+    const raw = localStorage.getItem(POSKEY + S.pdfName);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    return (v && v.anchor) ? v : null;
+  } catch (_) { return null; }
 }
 
 /* ===================== 지오지브라 창 ===================== */
@@ -1552,7 +1610,7 @@ function saveFile() {
   setTimeout(() => {
     try {
       const data = {
-        v: 1, app: 'pdf-board', pdfName: S.pdfName, pdf: S.pdfB64, zoom: S.zoom,
+        v: 1, app: 'pdf-board', pdfName: S.pdfName, pdf: S.pdfB64, zoom: S.zoom, anchor: viewAnchor(),
         strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts })),
         boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
       };
@@ -1590,6 +1648,7 @@ async function loadFile(file) {
     S.seq = Math.max(1, ...S.strokes.map(o => o.id), ...S.boxes.map(b => b.id)) + 1;
     layout();
     renderAllInk();
+    restoreView(data.anchor, data.zoom);
     toast('불러왔습니다: ' + (S.pdfName || file.name));
   } catch (err) {
     toast('불러오기 실패: ' + err.message);
