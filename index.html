@@ -259,7 +259,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v7';
+const BUILD = '무한 캔버스 v8';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -279,6 +279,17 @@ const LIM = 4000;                 // 페이지 바깥으로 필기 가능한 범
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 const blockedTouches = new Set();
 const tt = { pts: new Map(), start: 0, max: 0, bad: false };
+
+// 색·굵기 팝업: 바깥을 누르면 닫는다 (다른 입력 처리보다 먼저 실행되도록 맨 앞에 등록)
+window.addEventListener('pointerdown', e => {
+  const r = document.getElementById('colorRing');
+  if (r && r.classList.contains('show') && !r.contains(e.target) && !quickBtn.contains(e.target)) {
+    r.classList.remove('show');
+  }
+}, { capture: true });
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { const r = document.getElementById('colorRing'); if (r) r.classList.remove('show'); }
+});
 
 /* ===================== 공통 ===================== */
 let toastTimer = null;
@@ -2072,9 +2083,6 @@ function openRing(atX, atY) {
 }
 function closeRing() { ring.classList.remove('show'); }
 const ringOpen = () => ring.classList.contains('show');
-window.addEventListener('pointerdown', e => {
-  if (ringOpen() && !ring.contains(e.target) && !quickBtn.contains(e.target)) closeRing();
-}, { capture: true });
 
 let qd = null, qLastTap = 0;
 quickBtn.addEventListener('pointerdown', e => {
