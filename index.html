@@ -259,7 +259,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v6';
+const BUILD = '무한 캔버스 v7';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1108,15 +1108,21 @@ function startGesture() {
     worldEl.style.transformOrigin = ((gest.mx - vr.left) - cam.tx) + 'px ' + ((gest.my - vr.top) - cam.ty) + 'px';
     freezeActive();
   } else if (list.length === 1) {
-    gest = { type: 'pan', x: list[0].x, y: list[0].y };
+    gest = { type: 'pan', x: list[0].x, y: list[0].y, sx: list[0].x, sy: list[0].y, t0: performance.now(), box: tapBox };
   } else {
     gest = null;
   }
+}
+let tapBox = null;
+function boxOfTarget(t) {
+  const el = t instanceof Node && t.closest ? t.closest('.ggbbox') : null;
+  return el ? S.boxes.find(b => b.el === el) || null : null;
 }
 window.addEventListener('pointerdown', e => {
   allPts.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType, t: performance.now() });
   if (!navRole(e)) return;
   swallow(e);
+  tapBox = navPts.size === 0 ? boxOfTarget(e.target) : null;
   if (act && act.ptype !== 'pen') cancelAction();
   if (e.pointerType === 'touch') {
     for (const [id, q] of allPts) if (q.type === 'touch') navPts.set(id, { x: q.x, y: q.y });
@@ -1152,6 +1158,16 @@ window.addEventListener('pointermove', e => {
     if (!navPts.has(e.pointerId)) return;
     swallow(e);
     navPts.delete(e.pointerId);
+    const g = gest;
+    if (g && g.type === 'pan' && g.box && navPts.size === 0 &&
+        Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 10 && performance.now() - g.t0 < 400) {
+      // 그림 상태의 창을 손가락으로 톡 → 편집 시작
+      const b = g.box;
+      gest = null;
+      showBoxUI(b);
+      if (!(activeBox && activeBox.b === b)) activateBox(b);
+      return;
+    }
     finishPinch();
     startGesture();
   }, { capture: true, passive: false }));
