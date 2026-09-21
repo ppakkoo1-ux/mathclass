@@ -266,7 +266,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v10';
+const BUILD = '무한 캔버스 v11';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1609,6 +1609,59 @@ function watchView(api) {
 }
 const ICON_HAND = '<svg viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4a1.5 1.5 0 0 1 3 0v6"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5A5.5 5.5 0 0 1 6 17l-2-3.5a1.5 1.5 0 0 1 2.5-1.5L8 14"/></svg>';
 const ICON_PEN = '<svg viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.3 4.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19z"/></svg>';
+// 원의 식 "(x - a)² + (y - b)² = r²" 에서 중심과 반지름 읽기
+function parseCircle(str) {
+  const t = String(str).replace(/−/g, '-').replace(/\s+/g, '');
+  const eq = t.split('=');
+  if (eq.length !== 2) return null;
+  const r2 = parseFloat(eq[1]);
+  if (!(r2 > 0)) return null;
+  const coord = v => {
+    const m = eq[0].match(new RegExp('\\(' + v + '([+-])([\\d.]+)\\)²'));
+    if (m) return (m[1] === '-' ? 1 : -1) * parseFloat(m[2]);
+    return eq[0].indexOf(v + '²') >= 0 ? 0 : null;
+  };
+  const cx = coord('x'), cy = coord('y');
+  if (cx == null || cy == null) return null;
+  return { x: cx, y: cy, r: Math.sqrt(r2) };
+}
+// 보이는 개체(점, 원)가 모두 창 안에 들어오도록 좌표계를 맞춘다
+function fitConstruction(api) {
+  if (!api || typeof api.getAllObjectNames !== 'function' || typeof api.setCoordSystem !== 'function') return false;
+  try {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, n = 0;
+    const add = (x, y) => {
+      if (!isFinite(x) || !isFinite(y)) return;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      n++;
+    };
+    for (const nm of api.getAllObjectNames()) {
+      if (typeof api.getVisible === 'function' && !api.getVisible(nm)) continue;
+      const t = String(api.getObjectType(nm)).toLowerCase();
+      if (t === 'point') add(api.getXcoord(nm), api.getYcoord(nm));
+      else if (t === 'circle' || t === 'conic') {
+        const c = parseCircle(api.getValueString(nm));
+        if (c) { add(c.x - c.r, c.y - c.r); add(c.x + c.r, c.y + c.r); }
+      }
+    }
+    if (!n) return false;
+    const q = JSON.parse(api.getViewProperties(1));
+    const W = +q.width, H = +q.height;
+    if (!(W > 0 && H > 0)) return false;
+    let w = x1 - x0, h = y1 - y0;
+    if (w < 1e-6 && h < 1e-6) { w = 10; h = 10; }
+    w = Math.max(w, 1e-6) * 1.3;          // 여백 15%씩
+    h = Math.max(h, 1e-6) * 1.3;
+    const unit = Math.max(w / W, h / H);   // 가로세로 같은 비율 유지
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    api.setCoordSystem(cx - unit * W / 2, cx + unit * W / 2, cy - unit * H / 2, cy + unit * H / 2);
+    return true;
+  } catch (_) { return false; }
+}
+function fitSoon(api) {
+  setTimeout(() => { fitConstruction(api); syncBoxView(true); }, 350);
+}
 function setManip(b, v) {
   b.manip = !!v;
   b.el.classList.toggle('manip', b.manip);
@@ -1656,13 +1709,19 @@ function buildBoxEl(b) {
   const el = document.createElement('div');
   el.className = 'ggbbox';
   el.innerHTML =
-    '<div class="bxhead"><span class="t">지오지브라</span><button class="bfile">파일</button><button class="bdel">삭제</button></div>' +
+    '<div class="bxhead"><span class="t">지오지브라</span><button class="bfit">맞춤</button><button class="bfile">파일</button><button class="bdel">삭제</button></div>' +
     '<button class="bxtoggle" aria-label="조작과 필기 전환"></button>' +
     '<div class="bxbody"></div><div class="bxguard"></div><div class="bxresize"></div>';
   b.el = el;
   b.body = el.querySelector('.bxbody');
   (S.pages[b.page] || S.pages[0]).boxesEl.appendChild(el);
   el.querySelector('.bfile').addEventListener('click', () => { ggbFileTarget = b; ggbFileInput.click(); });
+  el.querySelector('.bfit').addEventListener('click', () => {
+    if (activeBox && activeBox.b === b && activeBox.api) {
+      if (!fitConstruction(activeBox.api)) toast('맞출 개체(점, 원)가 없습니다.');
+      syncBoxView(true);
+    }
+  });
   el.querySelector('.bxtoggle').addEventListener('click', e => {
     e.stopPropagation();
     const live = activeBox && activeBox.b === b;
@@ -1768,6 +1827,7 @@ function activateBox(b) {
         if (b.pendingFile) {
           try { activeBox.api.setBase64(b.pendingFile); } catch (_) {}
           b.pendingFile = '';
+          fitSoon(activeBox.api);
         }
         watchView(activeBox.api);
         syncBoxView(true);
@@ -1822,7 +1882,7 @@ ggbFileInput.addEventListener('change', () => {
     b.state = b64;
     b.png = '';
     if (activeBox && activeBox.b === b && activeBox.api) {
-      try { activeBox.api.setBase64(b64); } catch (_) { toast('파일을 열지 못했습니다.'); }
+      try { activeBox.api.setBase64(b64); fitSoon(activeBox.api); } catch (_) { toast('파일을 열지 못했습니다.'); }
     } else {
       b.pendingFile = b64;
       activateBox(b);
