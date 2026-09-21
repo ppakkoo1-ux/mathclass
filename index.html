@@ -91,11 +91,18 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
 .bxbody img{display:block;object-fit:fill}
 .bxbody .host{width:100%;height:100%}
 .bxguard{position:absolute;inset:0;z-index:1;pointer-events:none}
+.bxtoggle{position:absolute;right:4px;bottom:4px;z-index:4;height:30px;min-width:30px;padding:0 9px;
+  display:flex;align-items:center;gap:4px;border-radius:15px;border:1px solid rgba(43,89,195,.45);
+  background:rgba(255,255,255,.88);color:#2b59c3;font-size:12px;font-weight:600;cursor:pointer;
+  touch-action:manipulation;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.bxtoggle svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ggbbox.live.manip .bxtoggle{background:#2b59c3;color:#fff;border-color:#2b59c3}
+.ggbbox.live.manip .bxhead{opacity:1;pointer-events:auto}
 .ggbbox.live .bxguard{pointer-events:auto}
 .ggbbox.live.manip .bxguard,body.mode-ggb .ggbbox.live .bxguard{pointer-events:none}
 .ggbbox.live.manip.ui-show{box-shadow:0 0 0 2px var(--active),0 3px 12px rgba(0,0,0,.2)}
-.bxresize{position:absolute;right:0;bottom:0;width:28px;height:28px;cursor:nwse-resize;touch-action:none;
-  background:linear-gradient(135deg, transparent 50%, var(--active) 50%)}
+.bxresize{position:absolute;right:0;top:34px;width:22px;height:22px;cursor:nwse-resize;touch-action:none;
+  background:linear-gradient(135deg, transparent 50%, var(--active) 50%);border-radius:0 0 0 4px}
 
 #empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);
   font-size:15px;line-height:1.7;padding:24px;pointer-events:none}
@@ -259,7 +266,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v9';
+const BUILD = '무한 캔버스 v10';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -284,7 +291,7 @@ const tt = { pts: new Map(), start: 0, max: 0, bad: false };
 window.addEventListener('contextmenu', e => {
   const t = e.target;
   if (!(t instanceof Node) || !t.closest) return;
-  if (t.closest('.ggbbox.live')) return;
+  if (t.closest('.ggbbox.live.manip')) return;
   if (t.closest('#viewer, #quickBtn, #colorRing, #selBar, #expandBtn')) e.preventDefault();
 }, { capture: true });
 
@@ -311,7 +318,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #expandBtn, .bxhead, .bxresize'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #expandBtn, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -866,6 +873,7 @@ function screenPt(pi, e) {
   return [e.clientX - r.left, e.clientY - r.top];
 }
 function captureNow(e) {
+  if (e.target instanceof Node && e.target.closest && e.target.closest('.ggbbox.live.manip')) return false;
   if (!S.doc || S.mode === 'ggb' || inUI(e.target) || gest || navPts.size) return false;
   if (e.pointerType === 'pen') return true;
   if (S.mode === 'draw') {
@@ -1100,7 +1108,7 @@ function setZoom(z, ax, ay) {
 /* ---------- 이동·확대 (무한 캔버스) ---------- */
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
   document.addEventListener(t, e => { if (e.cancelable) e.preventDefault(); }, { passive: false }));
-const inLiveBox = t => t instanceof Node && !!(t.closest && t.closest('.ggbbox.live'));
+const inLiveBox = t => t instanceof Node && !!(t.closest && t.closest('.ggbbox.live.manip'));
 const allPts = new Map();
 const navPts = new Map();
 function navRole(e) {
@@ -1242,6 +1250,7 @@ window.addEventListener('touchstart', e => {
 
 viewer.addEventListener('wheel', e => {
   if (!S.doc) return;
+  if (inLiveBox(e.target)) return;   // 조작 중인 지오지브라 창: 창 안 확대·이동
   e.preventDefault();
   lastWheel = performance.now();
   if (e.ctrlKey || e.metaKey) setZoom(S.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
@@ -1598,11 +1607,19 @@ function watchView(api) {
     });
   } catch (_) {}
 }
+const ICON_HAND = '<svg viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4a1.5 1.5 0 0 1 3 0v6"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-.5A5.5 5.5 0 0 1 6 17l-2-3.5a1.5 1.5 0 0 1 2.5-1.5L8 14"/></svg>';
+const ICON_PEN = '<svg viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.3 4.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19z"/></svg>';
 function setManip(b, v) {
   b.manip = !!v;
   b.el.classList.toggle('manip', b.manip);
-  const btn = b.el.querySelector('.bmani');
-  if (btn) btn.textContent = b.manip ? '필기' : '조작';
+  updateToggle(b);
+}
+// 버튼에는 '누르면 바뀔 상태'를 표시한다
+function updateToggle(b) {
+  const btn = b.el && b.el.querySelector('.bxtoggle');
+  if (!btn) return;
+  const live = activeBox && activeBox.b === b;
+  btn.innerHTML = (live && b.manip) ? ICON_PEN + '필기' : ICON_HAND + '조작';
 }
 function showBoxUI(b) {
   b.el.classList.add('ui-show');
@@ -1623,6 +1640,7 @@ function boxMsg(b, text) {
   b.body.innerHTML = '<div style="display:grid;place-items:center;height:100%;padding:8px;text-align:center;color:#667089;font-size:13px">' + text + '</div>';
 }
 function renderBoxBody(b) {
+  updateToggle(b);
   if (activeBox && activeBox.b === b) return;
   if (!b.png) { boxMsg(b, ggbReady ? '편집을 눌러 시작' : '지오지브라 불러오는 중…'); return; }
   // 저장한 그림은 '지오지브라 그래픽 화면' 부분만 담고 있으므로, 창 전체가 아니라 그 자리에 맞춰 붙인다
@@ -1638,17 +1656,19 @@ function buildBoxEl(b) {
   const el = document.createElement('div');
   el.className = 'ggbbox';
   el.innerHTML =
-    '<div class="bxhead"><span class="t">지오지브라</span><button class="bmani">조작</button><button class="bfile">파일</button><button class="bact">편집</button><button class="bdel">삭제</button></div>' +
+    '<div class="bxhead"><span class="t">지오지브라</span><button class="bfile">파일</button><button class="bdel">삭제</button></div>' +
+    '<button class="bxtoggle" aria-label="조작과 필기 전환"></button>' +
     '<div class="bxbody"></div><div class="bxguard"></div><div class="bxresize"></div>';
   b.el = el;
   b.body = el.querySelector('.bxbody');
   (S.pages[b.page] || S.pages[0]).boxesEl.appendChild(el);
-  el.querySelector('.bact').addEventListener('click', () => activateBox(b));
   el.querySelector('.bfile').addEventListener('click', () => { ggbFileTarget = b; ggbFileInput.click(); });
-  el.querySelector('.bmani').addEventListener('click', () => {
-    if (!(activeBox && activeBox.b === b)) { activateBox(b); return; }
-    setManip(b, !b.manip);
-    toast(b.manip ? '이 창은 지오지브라 조작 상태입니다 (펜도 조작).' : '이 창 위에서 필기합니다.');
+  el.querySelector('.bxtoggle').addEventListener('click', e => {
+    e.stopPropagation();
+    const live = activeBox && activeBox.b === b;
+    if (!live) { activateBox(b); return; }              // 그림 → 켜서 조작
+    setManip(b, !b.manip);                               // 조작 ↔ 필기
+    toast(b.manip ? '창 조작: 이 창 안의 입력은 지오지브라로 갑니다.' : '창 필기: 이 창 위에 필기합니다.');
   });
   el.querySelector('.bdel').addEventListener('click', () => deleteBox(b));
   el.addEventListener('pointerdown', e => {
