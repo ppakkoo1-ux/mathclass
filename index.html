@@ -259,7 +259,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v4';
+const BUILD = '무한 캔버스 v5';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1240,12 +1240,14 @@ function release(p) {
 }
 // 캔버스 한 장이 너무 커지지 않도록 배율 제한 (모바일 사파리 캔버스 한도)
 const MAX_AREA = 6e6;
-function pixScale(reg) {
+function pixScale(reg, maxArea) {
+  const cap = maxArea || MAX_AREA;
   let k = DPR;
   const area = reg.w * S.zoom * reg.h * S.zoom;
-  if (area * k * k > MAX_AREA) k = Math.max(0.6, Math.sqrt(MAX_AREA / area));
+  if (area * k * k > cap) k = Math.max(0.6, Math.sqrt(cap / area));
   return k;
 }
+const INK_AREA = 9e6;   // 필기 캔버스는 선명도를 우선
 // 화면에 보이는 부분만 페이지 좌표로 계산 (pad: 여유 화면 픽셀)
 function regionFor(p, pad, lim) {
   lim = lim || 0;
@@ -1267,15 +1269,15 @@ function styleCanvas(c, reg) {
   c.style.height = (reg.h * S.zoom) + 'px';
 }
 function ensureInk(p) {
-  const need = regionFor(p, 80, LIM);
+  const need = regionFor(p, 40, LIM);
   if (!need) return;
   if (p.inkReg && p.inkZoom === S.zoom && contains(p.inkReg, need)) return;
   sizeInk(p);
 }
 function sizeInk(p) {
-  const reg = regionFor(p, 600, LIM);
+  const reg = regionFor(p, 220, LIM);
   if (!reg) return;
-  const k = pixScale(reg), z = S.zoom;
+  const k = pixScale(reg, INK_AREA), z = S.zoom;
   p.inkc.width = Math.max(1, Math.round(reg.w * z * k));
   p.inkc.height = Math.max(1, Math.round(reg.h * z * k));
   styleCanvas(p.inkc, reg);
