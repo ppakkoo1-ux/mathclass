@@ -27,43 +27,50 @@ body{
 }
 #app{display:flex;flex-direction:column;height:100%}
 #toolbar{
-  display:flex;align-items:center;gap:6px;flex:0 0 auto;
-  padding:6px 10px;padding-top:max(6px, env(safe-area-inset-top));
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px;row-gap:4px;flex:0 0 auto;
+  padding:4px 8px;padding-top:max(4px, env(safe-area-inset-top));
   background:var(--bar);border-bottom:1px solid var(--bar-border);
-  overflow-x:auto;scrollbar-width:none;-webkit-user-select:none;user-select:none;
+  -webkit-user-select:none;user-select:none;
 }
 #toolbar::-webkit-scrollbar{display:none}
-.group{display:flex;align-items:center;gap:4px;flex:0 0 auto}
-.sep{width:1px;height:36px;background:var(--sep);flex:0 0 auto;margin:0 4px}
-.spacer{flex:1 1 auto;min-width:4px}
+.group{display:flex;align-items:center;gap:3px;flex:0 0 auto}
+.sep{width:1px;height:28px;background:var(--sep);flex:0 0 auto;margin:0 2px}
+.spacer{flex:1 1 auto;min-width:0}
 button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 .tool{
-  min-width:54px;height:54px;padding:4px 6px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:3px;border:0;border-radius:10px;
+  min-width:44px;height:44px;padding:3px 5px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;border:0;border-radius:8px;
   background:var(--btn);cursor:pointer;
 }
-.tool svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.tool span{font-size:11px;line-height:1;white-space:nowrap}
+.tool svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tool span{font-size:10px;line-height:1;white-space:nowrap}
 .tool:hover{background:var(--btn-hover)}
 .tool.active{background:var(--active);color:var(--active-text)}
 .tool:disabled{opacity:.35;cursor:default;background:var(--btn)}
-.seg-ctl{display:flex;background:var(--btn);border-radius:10px;padding:3px;gap:2px}
+.seg-ctl{display:flex;background:var(--btn);border-radius:8px;padding:2px;gap:2px}
 .seg-ctl button{
-  border:0;background:transparent;border-radius:8px;cursor:pointer;min-width:54px;height:48px;
-  padding:0 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  border:0;background:transparent;border-radius:6px;cursor:pointer;min-width:44px;height:40px;
+  padding:0 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
 }
-.seg-ctl button b{font-size:14px;font-weight:600}
-.seg-ctl button small{font-size:10px;color:var(--muted);white-space:nowrap}
+.seg-ctl button b{font-size:13px;font-weight:600}
+.seg-ctl button small{font-size:9px;color:var(--muted);white-space:nowrap}
 .seg-ctl button.active{background:var(--active);color:var(--active-text)}
 .seg-ctl button.active small{color:inherit;opacity:.85}
-.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;background:var(--c);
-  border:3px solid var(--bar);box-shadow:0 0 0 1px var(--bar-border)}
+.swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;background:var(--c);
+  border:2px solid var(--bar);box-shadow:0 0 0 1px var(--bar-border)}
 .swatch.active{box-shadow:0 0 0 2.5px var(--active)}
-.wbtn{width:40px;height:40px;border-radius:10px;border:0;background:var(--btn);cursor:pointer;display:grid;place-items:center}
+.wbtn{width:32px;height:32px;border-radius:8px;border:0;background:var(--btn);cursor:pointer;display:grid;place-items:center}
 .wbtn i{display:block;border-radius:50%;background:currentColor}
 .wbtn.active{background:var(--active);color:var(--active-text)}
-#zoomPct{min-width:56px;text-align:center;font-size:13px;color:var(--muted)}
+#zoomPct{min-width:40px;text-align:center;font-size:12px;color:var(--muted)}
+/* 창이 좁으면 글자를 숨겨 한 줄에 최대한 담고, 그래도 넘치면 두 줄로 */
+@media (max-width: 1150px){
+  .tool{min-width:36px;height:36px;padding:3px}
+  .tool span{display:none}
+  .seg-ctl button{height:34px;min-width:40px}
+  .seg-ctl button small{display:none}
+}
 #ver{font-size:12px;opacity:.7}
 
 #viewer{flex:1 1 auto;min-height:0;overflow:hidden;position:relative;touch-action:none;background:var(--paper,#ffffff)}
@@ -116,14 +123,14 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
 #quickBtn.eraser{background:var(--active);color:var(--active-text);border-color:transparent}
 #quickBtn.eraser .q-pen{display:none}
 #quickBtn.eraser .q-eraser{display:block}
-#colorRing{position:absolute;z-index:62;display:none;flex-direction:column;gap:8px;padding:10px;
+#colorRing{position:absolute;z-index:62;display:none;flex-direction:column;gap:5px;padding:6px;
   background:var(--bar);border:1px solid var(--bar-border);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.22)}
 #colorRing.show{display:flex}
-#colorRing .row{display:flex;gap:8px}
-#colorRing .c{width:46px;height:46px;border-radius:50%;border:3px solid var(--bar);
+#colorRing .row{display:flex;gap:5px}
+#colorRing .c{width:26px;height:26px;border-radius:50%;border:2px solid var(--bar);
   box-shadow:0 0 0 1px var(--bar-border);cursor:pointer;background:var(--c)}
-#colorRing .c.active{box-shadow:0 0 0 3px var(--active)}
-#colorRing .w{width:46px;height:38px;border:0;border-radius:10px;background:var(--btn);color:var(--text);
+#colorRing .c.active{box-shadow:0 0 0 2px var(--active)}
+#colorRing .w{width:26px;height:22px;border:0;border-radius:6px;background:var(--btn);color:var(--text);
   display:grid;place-items:center;cursor:pointer}
 #colorRing .w i{display:block;border-radius:50%;background:currentColor}
 #colorRing .w.active{background:var(--active);color:var(--active-text)}
@@ -278,7 +285,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v16';
+const BUILD = '무한 캔버스 v17';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
