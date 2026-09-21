@@ -248,7 +248,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = 'v15';
+const BUILD = 'v16';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -999,10 +999,14 @@ window.addEventListener('pointermove', e => {
   }, { capture: true }));
 
 // 마우스 오른쪽 버튼 → 펜/지우개 전환
+let rcLast = 0;
 window.addEventListener('pointerdown', e => {
   if (e.pointerType !== 'mouse' || e.button !== 2) return;
   if (inUI(e.target) || pageAtClient(e.clientX, e.clientY) < 0) return;
   swallow(e);
+  const now = performance.now();
+  if (now - rcLast < 450) { rcLast = 0; openRing(e.clientX, e.clientY); return; }
+  rcLast = now;
   toggleEraser();
 }, { capture: true });
 
@@ -1014,7 +1018,8 @@ window.addEventListener('pointerdown', e => {
   if (tt.pts.size === 1 && act && act.ptype === 'touch' && now - act.t0 < 250) cancelAction();
   tt.pts.set(e.pointerId, [e.clientX, e.clientY]);
   tt.max = Math.max(tt.max, tt.pts.size);
-  if (now - tt.start > 250 || tt.max > 2 || S.mode === 'ggb' || act || inUI(e.target) ||
+  tt.lx = e.clientX; tt.ly = e.clientY;
+  if (now - tt.start > 320 || tt.max > 3 || S.mode === 'ggb' || act || inUI(e.target) ||
       pageAtClient(e.clientX, e.clientY) < 0) tt.bad = true;
 }, { capture: true });
 window.addEventListener('pointermove', e => {
@@ -1026,7 +1031,10 @@ window.addEventListener('pointermove', e => {
     if (!tt.pts.has(e.pointerId)) return;
     tt.pts.delete(e.pointerId);
     if (t === 'pointercancel') tt.bad = true;
-    if (tt.pts.size === 0 && !tt.bad && tt.max === 2 && performance.now() - tt.start < 400) toggleEraser();
+    if (tt.pts.size === 0 && !tt.bad && performance.now() - tt.start < 500) {
+      if (tt.max === 2) toggleEraser();                 // 두 손가락 탭 → 펜/지우개
+      else if (tt.max === 3) openRing(tt.lx, tt.ly);    // 세 손가락 탭 → 색·굵기 고르기
+    }
   }, { capture: true }));
 
 /* ===================== 확대/축소 ===================== */
@@ -1834,14 +1842,21 @@ function markRing() {
   ring.querySelectorAll('[data-rc]').forEach(b => b.classList.toggle('active', b.dataset.rc === S.color));
   ring.querySelectorAll('[data-rw]').forEach(b => b.classList.toggle('active', Number(b.dataset.rw) === S.width));
 }
-function openRing() {
+function openRing(atX, atY) {
   markRing();
   ring.classList.add('show');
-  const q = quickBtn.getBoundingClientRect();
   const rw = ring.offsetWidth, rh = ring.offsetHeight;
-  let left = q.left + q.width / 2 - rw / 2;
-  let top = q.top - rh - 10;
-  if (top < 8) top = Math.min(q.bottom + 10, window.innerHeight - rh - 8);
+  let left, top;
+  if (atX != null) {
+    left = atX - rw / 2;
+    top = atY - rh - 24;
+    if (top < 8) top = Math.min(atY + 24, window.innerHeight - rh - 8);
+  } else {
+    const q = quickBtn.getBoundingClientRect();
+    left = q.left + q.width / 2 - rw / 2;
+    top = q.top - rh - 10;
+    if (top < 8) top = Math.min(q.bottom + 10, window.innerHeight - rh - 8);
+  }
   left = Math.min(Math.max(8, left), window.innerWidth - rw - 8);
   ring.style.left = left + 'px';
   ring.style.top = top + 'px';
