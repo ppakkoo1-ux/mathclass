@@ -278,7 +278,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v15';
+const BUILD = '무한 캔버스 v16';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -298,6 +298,7 @@ const LIM = 4000;                 // 페이지 바깥으로 필기 가능한 범
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 const blockedTouches = new Set();
 const tt = { pts: new Map(), start: 0, max: 0, bad: false };
+const allPts = new Map();   // 화면에 닿아 있는 모든 포인터
 
 // 브라우저 우클릭 메뉴 막기 — 켜진 지오지브라 창 안은 지오지브라가 처리하도록 둔다
 window.addEventListener('contextmenu', e => {
@@ -321,26 +322,30 @@ window.addEventListener('keydown', e => {
 // 모든 터치를 가장 먼저 기록한다. 필기가 첫 손가락을 가져가도 두 번째 손가락을 알아볼 수 있도록.
 // 두 손가락 탭 → 펜/지우개, 세 손가락 탭 → 색·굵기
 window.addEventListener('pointerdown', e => {
+  allPts.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType, t: performance.now() });
   if (e.pointerType !== 'touch') return;
   const now = performance.now();
   if (tt.pts.size === 0) { tt.start = now; tt.max = 0; tt.bad = false; }
   tt.pts.set(e.pointerId, [e.clientX, e.clientY]);
   tt.max = Math.max(tt.max, tt.pts.size);
   tt.lx = e.clientX; tt.ly = e.clientY;
-  // 첫 손가락으로 막 시작한 필기는 취소 (두 손가락 동작의 시작이었으므로)
-  if (tt.pts.size >= 2 && act && act.ptype === 'touch' && now - act.t0 < 250) cancelAction();
-  if (now - tt.start > 320 || tt.max > 3 || S.mode === 'ggb' || inUI(e.target) || act) tt.bad = true;
+  // 첫 손가락으로 막 시작한 필기는 취소 (여러 손가락 동작의 시작이었으므로)
+  if (tt.pts.size >= 2 && act && act.ptype === 'touch' && now - act.t0 < 400) cancelAction();
+  if (now - tt.start > 450 || tt.max > 3 || S.mode === 'ggb' || inUI(e.target) || act) tt.bad = true;
 }, { capture: true });
 window.addEventListener('pointermove', e => {
+  const rec = allPts.get(e.pointerId);
+  if (rec) { rec.x = e.clientX; rec.y = e.clientY; }
   const p0 = tt.pts.get(e.pointerId);
-  if (p0 && Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) > 16) tt.bad = true;
+  if (p0 && Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) > 24) tt.bad = true;
 }, { capture: true });
 ['pointerup', 'pointercancel'].forEach(t =>
   window.addEventListener(t, e => {
+    allPts.delete(e.pointerId);
     if (!tt.pts.has(e.pointerId)) return;
     tt.pts.delete(e.pointerId);
     if (t === 'pointercancel') tt.bad = true;
-    if (tt.pts.size === 0 && !tt.bad && performance.now() - tt.start < 500) {
+    if (tt.pts.size === 0 && !tt.bad && performance.now() - tt.start < 800) {
       if (tt.max === 2) toggleEraser();
       else if (tt.max === 3) openRing(tt.lx, tt.ly);
     }
@@ -1126,7 +1131,6 @@ function setZoom(z, ax, ay) {
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t =>
   document.addEventListener(t, e => { if (e.cancelable) e.preventDefault(); }, { passive: false }));
 const inLiveBox = t => t instanceof Node && !!(t.closest && t.closest('.ggbbox.live.manip'));
-const allPts = new Map();
 const navPts = new Map();
 function navRole(e) {
   if (!S.doc || inUI(e.target) || inLiveBox(e.target)) return false;
@@ -1169,7 +1173,7 @@ window.addEventListener('pointerdown', e => {
   tapBox = navPts.size === 0 ? boxOfTarget(e.target) : null;
   // 손가락 필기 중 두 번째 손가락: 막 시작한 획은 취소, 이미 길게 쓴 획은 그대로 마무리
   if (act && act.ptype !== 'pen') {
-    if (performance.now() - act.t0 < 250) cancelAction(); else endAction();
+    if (performance.now() - act.t0 < 400) cancelAction(); else endAction();
   }
   if (e.pointerType === 'touch') {
     for (const [id, q] of allPts) if (q.type === 'touch') navPts.set(id, { x: q.x, y: q.y });
