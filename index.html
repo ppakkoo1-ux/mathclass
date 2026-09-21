@@ -192,6 +192,9 @@ body.lean #toolbar{display:none}
       <button class="tool" id="fitBtn" aria-label="페이지 맞춤">
         <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="2"/><path d="M8 8h8v8H8z"/></svg><span>페이지 맞춤</span>
       </button>
+      <button class="tool" id="paperBtn" aria-label="배경색">
+        <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="2"/><path d="M4.5 15l4-4 3 3 3-3 5 5"/></svg><span id="paperLabel">배경 흰색</span>
+      </button>
       <button class="tool" id="borderBtn" aria-pressed="true" aria-label="페이지 테두리">
         <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke-dasharray="3 2"/></svg><span>테두리</span>
       </button>
@@ -256,7 +259,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v1';
+const BUILD = '무한 캔버스 v3';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -265,7 +268,7 @@ const MODE_MSG = {
 };
 
 const S = {
-  mode: 'auto', tool: 'pen', partial: false, shapeFix: true,
+  mode: 'auto', tool: 'pen', partial: true, shapeFix: true,
   color: COLORS[0], width: WIDTHS[1], zoom: 1,
   strokes: [], boxes: [], sel: new Set(), undo: [], redo: [], seq: 1,
   pdfName: '', pdfB64: '', doc: null, pages: []
@@ -1154,6 +1157,7 @@ window.addEventListener('pointermove', e => {
 viewer.addEventListener('wheel', e => {
   if (!S.doc) return;
   e.preventDefault();
+  lastWheel = performance.now();
   if (e.ctrlKey || e.metaKey) setZoom(S.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
   else panBy(-e.deltaX, -e.deltaY);
 }, { passive: false });
@@ -1166,14 +1170,18 @@ function worldLayout() {
   let y = 0;
   for (const p of S.pages) { p.wx = 0; p.wy = y; y += p.h + 40; }
 }
-let camRaf = 0;
+let camRaf = 0, lastVis = 0, visTimer = null, lastWheel = 0;
 function camChanged() {
   if (camRaf) return;
   camRaf = requestAnimationFrame(() => {
     camRaf = 0;
-    updateVisible();
     placeSelBar();
-    placeQuick();
+    const now = performance.now();
+    const moving = !!gest || now - lastWheel < 150;
+    // 움직이는 중에는 0.3초에 한 번만 새로 보이는 부분을 그리고, 멈추면 바로 마저 그린다
+    if (!moving || now - lastVis > 300) { lastVis = now; updateVisible(); }
+    clearTimeout(visTimer);
+    visTimer = setTimeout(() => { lastVis = performance.now(); updateVisible(); }, 140);
     saveViewPos();
   });
 }
@@ -1245,13 +1253,13 @@ function styleCanvas(c, reg) {
   c.style.height = (reg.h * S.zoom) + 'px';
 }
 function ensureInk(p) {
-  const need = regionFor(p, 120, LIM);
+  const need = regionFor(p, 80, LIM);
   if (!need) return;
   if (p.inkReg && p.inkZoom === S.zoom && contains(p.inkReg, need)) return;
   sizeInk(p);
 }
 function sizeInk(p) {
-  const reg = regionFor(p, 400, LIM);
+  const reg = regionFor(p, 600, LIM);
   if (!reg) return;
   const k = pixScale(reg), z = S.zoom;
   p.inkc.width = Math.max(1, Math.round(reg.w * z * k));
@@ -1261,40 +1269,18 @@ function sizeInk(p) {
   p.ictx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
   renderInk(p);
 }
-let paperDone = false;
-// PDF 가장자리 색을 배경으로 써서 페이지 밖이 같은 종이처럼 이어지게 한다
-function samplePaper(canvas) {
-  try {
-    const w = canvas.width, h = canvas.height;
-    if (w < 8 || h < 8) return;
-    const ctx = canvas.getContext('2d');
-    const pick = [];
-    for (let i = 0; i < 12; i++) {
-      const x = 2 + Math.round((w - 5) * i / 11);
-      pick.push(ctx.getImageData(x, 2, 1, 1).data);
-      pick.push(ctx.getImageData(2, 2 + Math.round((h - 5) * i / 11), 1, 1).data);
-    }
-    const med = k => {
-      const v = pick.map(d => d[k]).sort((a, b) => a - b);
-      return v[Math.floor(v.length / 2)];
-    };
-    const c = 'rgb(' + med(0) + ',' + med(1) + ',' + med(2) + ')';
-    document.documentElement.style.setProperty('--paper', c);
-    paperDone = true;
-  } catch (_) {}
-}
 let renderingNow = 0;
 const renderWait = [];
 async function renderPdf(p) {
   if (p.task || p.pending) return;
-  const need = regionFor(p, 120);
+  const need = regionFor(p, 80);
   if (!need) return;
   if (p.frontReg && p.frontReg.zoom === S.zoom && contains(p.frontReg, need)) return;
   if (renderingNow >= 2) { p.pending = true; renderWait.push(p); return; }
   p.pending = false;
   renderingNow++;
   const gen = p.gen;
-  const reg = regionFor(p, 400) || need;
+  const reg = regionFor(p, 600) || need;
   const k = pixScale(reg), sc = S.zoom * k;
   const back = p.back;
   back.width = Math.max(1, Math.round(reg.w * sc));
@@ -1309,7 +1295,6 @@ async function renderPdf(p) {
   let ok = false;
   try { await task.promise; ok = true; } catch (_) {}
   p.task = null;
-  if (p.gen === gen && ok && !paperDone && reg.x <= 0.5 && reg.y <= 0.5) samplePaper(back);
   if (p.gen === gen && ok) {
     // 새 그림이 완성된 뒤에 바꿔치기 — 지우고 다시 그리는 깜빡임이 없음
     styleCanvas(back, reg);
@@ -1358,7 +1343,7 @@ async function loadPdfFromB64(b64, reset) {
   }).promise;
   S.doc = doc;
   if (reset) {
-    S.strokes = []; S.sel.clear(); S.undo = []; S.redo = []; paperDone = false;
+    S.strokes = []; S.sel.clear(); S.undo = []; S.redo = [];
     activeBox = null;
     S.boxes.forEach(b => b.el && b.el.remove());
     S.boxes = [];
@@ -1920,6 +1905,17 @@ $('fitBtn').addEventListener('click', () => {
   const vr = viewer.getBoundingClientRect();
   fitPage(Math.max(0, nearestPage(vr.left + vr.width / 2, vr.top + vr.height / 2)));
 });
+const PAPERS = [{ name: '흰색', c: '#ffffff' }, { name: '미색', c: '#f8f4e6' }];
+let paperIdx = 0;
+try { paperIdx = Math.max(0, PAPERS.findIndex(x => x.name === localStorage.getItem('pdfCanvas.paper'))); } catch (_) {}
+function applyPaper() {
+  const pp = PAPERS[paperIdx];
+  document.documentElement.style.setProperty('--paper', pp.c);
+  $('paperLabel').textContent = '배경 ' + pp.name;
+  try { localStorage.setItem('pdfCanvas.paper', pp.name); } catch (_) {}
+}
+$('paperBtn').addEventListener('click', () => { paperIdx = (paperIdx + 1) % PAPERS.length; applyPaper(); });
+applyPaper();
 $('borderBtn').addEventListener('click', () => {
   const on = !document.body.classList.contains('pageborder');
   document.body.classList.toggle('pageborder', on);
@@ -2038,7 +2034,7 @@ window.addEventListener('orientationchange', () => setTimeout(() => { placeQuick
 /* ===================== 시작 ===================== */
 setMode('auto', true);
 setTool('pen');
-setPartial(false);
+setPartial(true);
 setShapeFix(true);
 setColor(COLORS[0]);
 setWidth(WIDTHS[1]);
