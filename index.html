@@ -132,6 +132,18 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
 #expandBtn svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 body.lean #expandBtn{display:grid}
 body.lean #toolbar{display:none}
+#autoBar{position:absolute;z-index:75;left:50%;top:70px;transform:translateX(-50%);display:none;align-items:center;gap:8px;
+  padding:8px 10px 8px 14px;background:var(--bar);color:var(--text);border:1px solid var(--bar-border);border-radius:12px;
+  box-shadow:0 6px 20px rgba(0,0,0,.2);font-size:13px;max-width:calc(100% - 24px)}
+#autoBar.show{display:flex}
+#autoBar button{height:34px;padding:0 12px;border:0;border-radius:8px;background:var(--btn);color:var(--text);cursor:pointer;font-weight:600}
+#autoBar button.ok{background:var(--active);color:var(--active-text)}
+#loadMenu{position:absolute;z-index:74;display:none;flex-direction:column;gap:4px;padding:8px;min-width:240px;max-width:calc(100% - 16px);
+  background:var(--bar);color:var(--text);border:1px solid var(--bar-border);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#loadMenu.show{display:flex}
+#loadMenu .lm-h{font-size:12px;color:var(--muted);padding:4px 6px 2px}
+#loadMenu button{text-align:left;height:40px;padding:0 10px;border:0;border-radius:8px;background:var(--btn);color:var(--text);cursor:pointer;font-size:13px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #selBar{position:absolute;z-index:58;display:none;gap:4px;padding:4px;background:var(--bar);
   border:1px solid var(--bar-border);border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.16)}
 #selBar.show{display:flex}
@@ -232,7 +244,7 @@ body.lean #toolbar{display:none}
 
   <main id="viewer">
     <div id="world"></div>
-    <div id="empty">PDF를 열어 시작하세요.<br>페이지 밖 여백에도 필기할 수 있습니다.<br>필기와 지오지브라 창은 저장 파일 하나에 PDF와 함께 담깁니다.<br><span id="ver"></span></div>
+    <div id="empty">PDF를 열어 시작하세요.<br>페이지 밖 여백에도 필기할 수 있습니다.<br>저장하면 필기가 담긴 PDF가 만들어지고, 이 앱으로 다시 열면 이어서 편집할 수 있습니다.<br><span id="ver"></span></div>
   </main>
 </div>
 
@@ -266,7 +278,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v13';
+const BUILD = '무한 캔버스 v15';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -306,6 +318,34 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') { const r = document.getElementById('colorRing'); if (r) r.classList.remove('show'); }
 });
 
+// 모든 터치를 가장 먼저 기록한다. 필기가 첫 손가락을 가져가도 두 번째 손가락을 알아볼 수 있도록.
+// 두 손가락 탭 → 펜/지우개, 세 손가락 탭 → 색·굵기
+window.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch') return;
+  const now = performance.now();
+  if (tt.pts.size === 0) { tt.start = now; tt.max = 0; tt.bad = false; }
+  tt.pts.set(e.pointerId, [e.clientX, e.clientY]);
+  tt.max = Math.max(tt.max, tt.pts.size);
+  tt.lx = e.clientX; tt.ly = e.clientY;
+  // 첫 손가락으로 막 시작한 필기는 취소 (두 손가락 동작의 시작이었으므로)
+  if (tt.pts.size >= 2 && act && act.ptype === 'touch' && now - act.t0 < 250) cancelAction();
+  if (now - tt.start > 320 || tt.max > 3 || S.mode === 'ggb' || inUI(e.target) || act) tt.bad = true;
+}, { capture: true });
+window.addEventListener('pointermove', e => {
+  const p0 = tt.pts.get(e.pointerId);
+  if (p0 && Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) > 16) tt.bad = true;
+}, { capture: true });
+['pointerup', 'pointercancel'].forEach(t =>
+  window.addEventListener(t, e => {
+    if (!tt.pts.has(e.pointerId)) return;
+    tt.pts.delete(e.pointerId);
+    if (t === 'pointercancel') tt.bad = true;
+    if (tt.pts.size === 0 && !tt.bad && performance.now() - tt.start < 500) {
+      if (tt.max === 2) toggleEraser();
+      else if (tt.max === 3) openRing(tt.lx, tt.ly);
+    }
+  }, { capture: true }));
+
 /* ===================== 공통 ===================== */
 let toastTimer = null;
 function toast(msg) {
@@ -318,7 +358,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #expandBtn, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -537,6 +577,7 @@ function placeSelBar() {
 /* ===================== 실행 취소 ===================== */
 const snapshot = () => JSON.stringify(S.strokes, (k, v) => (k.charAt(0) === '_' ? undefined : v));
 function pushUndo(s) {
+  if (typeof markDirty === 'function') markDirty();
   S.undo.push(s);
   if (S.undo.length > 120) S.undo.shift();
   S.redo.length = 0;
@@ -1064,31 +1105,7 @@ window.addEventListener('pointerdown', e => {
   toggleEraser();
 }, { capture: true });
 
-// 두 손가락 탭 → 펜/지우개 전환
-window.addEventListener('pointerdown', e => {
-  if (e.pointerType !== 'touch') return;
-  const now = performance.now();
-  if (tt.pts.size === 0) { tt.start = now; tt.max = 0; tt.bad = false; }
-  if (tt.pts.size === 1 && act && act.ptype === 'touch' && now - act.t0 < 250) cancelAction();
-  tt.pts.set(e.pointerId, [e.clientX, e.clientY]);
-  tt.max = Math.max(tt.max, tt.pts.size);
-  tt.lx = e.clientX; tt.ly = e.clientY;
-  if (now - tt.start > 320 || tt.max > 3 || S.mode === 'ggb' || act || inUI(e.target)) tt.bad = true;
-}, { capture: true });
-window.addEventListener('pointermove', e => {
-  const p0 = tt.pts.get(e.pointerId);
-  if (p0 && Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) > 12) tt.bad = true;
-}, { capture: true });
-['pointerup', 'pointercancel'].forEach(t =>
-  window.addEventListener(t, e => {
-    if (!tt.pts.has(e.pointerId)) return;
-    tt.pts.delete(e.pointerId);
-    if (t === 'pointercancel') tt.bad = true;
-    if (tt.pts.size === 0 && !tt.bad && performance.now() - tt.start < 500) {
-      if (tt.max === 2) toggleEraser();                 // 두 손가락 탭 → 펜/지우개
-      else if (tt.max === 3) openRing(tt.lx, tt.ly);    // 세 손가락 탭 → 색·굵기 고르기
-    }
-  }, { capture: true }));
+// (두 손가락·세 손가락 탭 판정은 맨 앞의 포인터 기록에서 처리)
 
 /* ===================== 확대/축소 ===================== */
 function setZoom(z, ax, ay) {
@@ -1150,7 +1167,10 @@ window.addEventListener('pointerdown', e => {
   if (!navRole(e)) return;
   swallow(e);
   tapBox = navPts.size === 0 ? boxOfTarget(e.target) : null;
-  if (act && act.ptype !== 'pen') cancelAction();
+  // 손가락 필기 중 두 번째 손가락: 막 시작한 획은 취소, 이미 길게 쓴 획은 그대로 마무리
+  if (act && act.ptype !== 'pen') {
+    if (performance.now() - act.t0 < 250) cancelAction(); else endAction();
+  }
   if (e.pointerType === 'touch') {
     for (const [id, q] of allPts) if (q.type === 'touch') navPts.set(id, { x: q.x, y: q.y });
   } else {
@@ -1475,13 +1495,26 @@ async function loadPdfFromB64(b64, reset) {
 async function openPdfFile(file) {
   busy('PDF 여는 중…');
   try {
-    const buf = await file.arrayBuffer();
-    S.pdfB64 = abToB64(buf);
+    let bytes = new Uint8Array(await file.arrayBuffer());
+    let data = null;
+    if (window.PDFLib) {
+      try { const r = await pbStrip(window.PDFLib, bytes); bytes = r.clean; data = r.data; } catch (_) {}
+    }
+    S.pdfB64 = abToB64(bytes);
     S.pdfName = file.name;
+    S.fileHandle = null;
     await loadPdfFromB64(S.pdfB64, true);
-    const pos = loadViewPos();
-    if (pos) { restoreView(pos.anchor, pos.zoom); toast(file.name + ' — 보던 자리에서 엽니다'); }
-    else { fitPage(0); toast(file.name + ' 열기 완료'); }
+    if (data) {
+      await applyBoard(data);
+      S.saved = true;           // 한 번 저장했던 문서 → 자동 저장 대상
+      toast(file.name + ' — 필기를 편집할 수 있게 열었습니다');
+    } else {
+      S.saved = false;
+      const pos = loadViewPos();
+      if (pos) { restoreView(pos.anchor, pos.zoom); toast(file.name + ' — 보던 자리에서 엽니다'); }
+      else { fitPage(0); toast(file.name + ' 열기 완료'); }
+    }
+    dirty = false; dirtySince = 0;
   } catch (err) {
     toast('PDF를 열지 못했습니다: ' + err.message);
   }
@@ -1809,13 +1842,14 @@ function dragBox(b, handle, kind) {
       activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
       setTimeout(() => syncBoxView(true), 120);
     }
-    if (kind === 'move' || kind === 'resize') showBoxUI(b);
+    if (kind === 'move' || kind === 'resize') { showBoxUI(b); markDirty(); }
     const pg = S.pages[b.page];
     if (pg) renderInk(pg);
   }));
 }
 function freezeActive() {
   if (!activeBox) return;
+  markDirty();
   const { b, api } = activeBox;
   if (api) {
     syncBoxView(true);
@@ -1870,6 +1904,7 @@ function activateBox(b) {
   new window.GGBApplet(params, true).inject(host.id);
 }
 function deleteBox(b) {
+  markDirty();
   if (activeBox && activeBox.b === b) { activeBox = null; }
   // 창 위에 쓴 필기는 창과 함께 지운다
   S.strokes = S.strokes.filter(o => o.box !== b.id);
@@ -1894,6 +1929,7 @@ function addBox() {
   S.boxes.push(b);
   buildBoxEl(b);
   activateBox(b);
+  markDirty();
 }
 
 let ggbFileTarget = null;
@@ -1930,58 +1966,427 @@ window.addEventListener('error', e => {
 });
 
 /* ===================== 저장 · 불러오기 ===================== */
-function saveFile() {
-  if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
-  busy('저장 파일 만드는 중…');
-  freezeActive();
-  setTimeout(() => {
-    try {
-      const data = {
-        v: 1, app: 'pdf-board', pdfName: S.pdfName, pdf: S.pdfB64, zoom: S.zoom, anchor: viewAnchor(),
-        strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts })),
-        boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
-      };
-      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-      const name = (S.pdfName.replace(/\.pdf$/i, '') || '수업자료') + '.board.json';
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-      toast('저장했습니다: ' + name);
-    } catch (err) {
-      toast('저장 실패: ' + err.message);
-    }
-    busy(false);
-  }, 60);
+// ===== PDF 안에 필기 저장 / 꺼내기 =====
+// 앱과 테스트에서 같은 코드를 쓰기 위해 PDFLib 을 인자로 받는다.
+const PB_KEY = 'PBoardData';
+const PB_MARK = '% pdf-board ink\n';
+const PB_IMG = 'PBImg';
+
+const _enc = s => new TextEncoder().encode(s);
+const _dec = u => new TextDecoder().decode(u);
+const _num = v => (Math.round(v * 100) / 100).toString();
+
+function _rgb(hex) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
+  return _num(r) + ' ' + _num(g) + ' ' + _num(b);
 }
+
+// 편집용 정보가 들어 있으면 꺼내고, 찍어 두었던 필기를 걷어낸 원본 PDF를 돌려준다
+async function pbStrip(L, bytes) {
+  const { PDFDocument, PDFName, PDFRawStream, PDFArray, PDFRef, PDFDict, decodePDFRawStream } = L;
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const ctx = doc.context, cat = doc.catalog;
+  const dref = cat.get(PDFName.of(PB_KEY));
+  if (!dref) return { clean: bytes, data: null };
+  const st = ctx.lookup(dref);
+  const data = JSON.parse(_dec(decodePDFRawStream(st).decode()));
+  cat.delete(PDFName.of(PB_KEY));
+  if (dref instanceof PDFRef) ctx.delete(dref);
+
+  for (const page of doc.getPages()) {
+    const node = page.node;
+    const cref = node.get(PDFName.of('Contents'));
+    const arr = cref ? ctx.lookup(cref) : null;
+    if (arr instanceof PDFArray) {
+      for (let i = arr.size() - 1; i >= 0; i--) {
+        const r = arr.get(i);
+        const s = ctx.lookup(r);
+        if (s instanceof PDFRawStream && !s.dict.get(PDFName.of('Filter'))) {
+          if (_dec(s.contents.slice(0, PB_MARK.length)) === PB_MARK) {
+            arr.remove(i);
+            if (r instanceof PDFRef) ctx.delete(r);
+          }
+        }
+      }
+    }
+    const res = node.Resources();
+    const xo = res ? res.lookup(PDFName.of('XObject')) : null;
+    if (xo instanceof PDFDict) {
+      for (const [k, v] of xo.entries()) {
+        if (k.asString().startsWith('/' + PB_IMG)) {
+          xo.delete(k);
+          if (v instanceof PDFRef) {
+            const im = ctx.lookup(v);
+            const sm = im && im.dict ? im.dict.get(PDFName.of('SMask')) : null;
+            if (sm instanceof PDFRef) ctx.delete(sm);
+            ctx.delete(v);
+          }
+        }
+      }
+    }
+  }
+  const clean = await doc.save({ useObjectStreams: false });
+  return { clean, data };
+}
+
+// 원본 PDF에 필기를 찍고 편집용 정보를 숨겨 넣는다
+// pages: [{ toPdf:(x,y)=>[X,Y], strokes:[{color,width,pts:[[x,y,p]],clip:{x,y,w,h}|null}], images:[{png:Uint8Array, rect:{x,y,w,h}}] }]
+async function pbBuild(L, cleanBytes, pages, data) {
+  const { PDFDocument, PDFName, PDFArray } = L;
+  const doc = await PDFDocument.load(cleanBytes, { updateMetadata: false });
+  const ctx = doc.context;
+  const docPages = doc.getPages();
+  const pf = pr => 0.4 + 1.2 * pr;
+  const rectPdf = (P, r) => {
+    const a = P(r.x, r.y), b = P(r.x + r.w, r.y + r.h);
+    return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
+  };
+
+  for (let i = 0; i < docPages.length && i < pages.length; i++) {
+    const pg = pages[i];
+    if (!pg || (!pg.strokes.length && !pg.images.length)) continue;
+    const page = docPages[i], node = page.node, P = pg.toPdf;
+    let ops = PB_MARK + 'Q\nq\n1 J 1 j\n';
+    let xo = null;
+    if (pg.images.length) {
+      // 페이지 자체 Resources 확보 (상속받던 것이면 복제) 후 XObject 사전에 직접 등록
+      let res = node.get(PDFName.of('Resources'));
+      let resDict = res ? ctx.lookup(res) : null;
+      if (!(resDict instanceof L.PDFDict)) {
+        const eff = node.Resources();
+        resDict = eff ? eff.clone(ctx) : ctx.obj({});
+        node.set(PDFName.of('Resources'), resDict);
+      }
+      xo = resDict.lookup(PDFName.of('XObject'));
+      if (!(xo instanceof L.PDFDict)) { xo = ctx.obj({}); resDict.set(PDFName.of('XObject'), xo); }
+    }
+    let imgNo = 0;
+    for (const im of pg.images) {
+      const img = await doc.embedPng(im.png);
+      const key = PDFName.of(PB_IMG + (++imgNo));
+      xo.set(key, img.ref);
+      const r = rectPdf(P, im.rect);
+      ops += 'q ' + _num(r.w) + ' 0 0 ' + _num(r.h) + ' ' + _num(r.x) + ' ' + _num(r.y) + ' cm ' + key.asString() + ' Do Q\n';
+    }
+    for (const o of pg.strokes) {
+      const pts = o.pts;
+      if (!pts.length) continue;
+      if (o.clip) {
+        const r = rectPdf(P, o.clip);
+        ops += 'q ' + _num(r.x) + ' ' + _num(r.y) + ' ' + _num(r.w) + ' ' + _num(r.h) + ' re W n\n';
+      }
+      const c = _rgb(o.color);
+      ops += c + ' RG ' + c + ' rg\n';
+      if (pts.length === 1) {
+        const a = P(pts[0][0], pts[0][1]);
+        ops += _num(o.width * pf(pts[0][2])) + ' w ' + _num(a[0]) + ' ' + _num(a[1]) + ' m ' + _num(a[0]) + ' ' + _num(a[1]) + ' l S\n';
+      } else {
+        for (let k = 1; k < pts.length; k++) {
+          const a = P(pts[k - 1][0], pts[k - 1][1]), b = P(pts[k][0], pts[k][1]);
+          ops += _num(o.width * pf((pts[k - 1][2] + pts[k][2]) / 2)) + ' w ' +
+            _num(a[0]) + ' ' + _num(a[1]) + ' m ' + _num(b[0]) + ' ' + _num(b[1]) + ' l S\n';
+        }
+      }
+      if (o.clip) ops += 'Q\n';
+    }
+    ops += 'Q\n';
+    const pre = ctx.register(ctx.stream(_enc(PB_MARK + 'q\n')));
+    const post = ctx.register(ctx.stream(_enc(ops)));
+    const cur = node.get(PDFName.of('Contents'));
+    const arr = PDFArray.withContext(ctx);
+    arr.push(pre);
+    if (cur) {
+      const c = ctx.lookup(cur);
+      if (c instanceof PDFArray) { for (let k = 0; k < c.size(); k++) arr.push(c.get(k)); }
+      else arr.push(cur);
+    }
+    arr.push(post);
+    node.set(PDFName.of('Contents'), arr);
+  }
+  const dstream = ctx.flateStream(_enc(JSON.stringify(data)));
+  doc.catalog.set(PDFName.of(PB_KEY), ctx.register(dstream));
+  return await doc.save({ useObjectStreams: false });
+}
+
+
+function dataUrlBytes(u) { return b64ToBytes(String(u).split(',')[1] || ''); }
+
+// 편집용 정보 (autosave=true 이면 켜진 창을 굳히지 않고 현재 상태만 읽는다)
+function boardData(autosave) {
+  if (!autosave) freezeActive();
+  else if (activeBox && activeBox.api) {
+    const b = activeBox.b;
+    try { b.state = activeBox.api.getBase64(); } catch (_) {}
+    try { const png = activeBox.api.getPNGBase64(1, false, 72); if (png) b.png = 'data:image/png;base64,' + png; } catch (_) {}
+  }
+  return {
+    v: 2, app: 'pdf-board', pdfName: S.pdfName, zoom: S.zoom, anchor: viewAnchor(),
+    strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts })),
+    boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
+  };
+}
+// 페이지별로 PDF에 찍을 필기·그림
+function exportPages() {
+  return S.pages.map((p, i) => {
+    const vp = p.pageObj.getViewport({ scale: 1 });
+    const toPdf = (x, y) => vp.convertToPdfPoint(x, y);
+    const strokes = [];
+    for (const o of S.strokes) {
+      if (o.page !== i) continue;
+      const pts = pagePts(o);
+      if (!pts || !pts.length) continue;
+      let clip = null;
+      if (o.box) { const b = boxById(o.box); if (b) clip = { x: b.x, y: b.y, w: b.w, h: b.h }; }
+      strokes.push({ color: o.color, width: o.width, pts, clip });
+    }
+    const images = [];
+    for (const b of S.boxes) {
+      if (b.page !== i || !b.png) continue;
+      const v = normView(b);
+      const rect = v ? { x: b.x + b.w * v.fx, y: b.y + b.h * v.fy, w: b.w * v.fw, h: b.h * v.fh } : { x: b.x, y: b.y, w: b.w, h: b.h };
+      try { images.push({ png: dataUrlBytes(b.png), rect }); } catch (_) {}
+    }
+    return { toPdf, strokes, images };
+  });
+}
+async function buildBoardPdf(autosave) {
+  const data = boardData(autosave);
+  return await pbBuild(window.PDFLib, b64ToBytes(S.pdfB64), exportPages(), data);
+}
+function saveName() {
+  const n = S.pdfName || '수업자료.pdf';
+  if (/ \(필기\)\.pdf$/i.test(n)) return n;
+  return n.replace(/\.pdf$/i, '') + ' (필기).pdf';
+}
+function downloadBytes(bytes, name, type) {
+  const blob = new Blob([bytes], { type: type || 'application/pdf' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+}
+
+// 저장: 필기가 찍힌 PDF (다른 뷰어에서도 보이고, 이 앱에서 열면 다시 편집 가능)
+async function saveFile() {
+  if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
+  if (!window.PDFLib) { toast('저장 기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
+  try {
+    // 크롬·엣지: 처음 한 번 위치를 고르면 이후엔 같은 파일에 바로 저장
+    if (window.showSaveFilePicker && !S.fileHandle) {
+      S.fileHandle = await window.showSaveFilePicker({
+        suggestedName: saveName(),
+        types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
+      });
+    }
+    busy('저장 중…');
+    const bytes = await buildBoardPdf(false);
+    if (S.fileHandle) {
+      const w = await S.fileHandle.createWritable();
+      await w.write(bytes);
+      await w.close();
+      toast('저장했습니다: ' + S.fileHandle.name);
+    } else {
+      downloadBytes(bytes, saveName());
+      toast('저장했습니다: ' + saveName());
+    }
+    const firstTime = !S.saved;
+    S.saved = true;
+    dirty = false; dirtySince = 0;
+    if (firstTime) offerAutoFolder();
+  } catch (err) {
+    if (!err || err.name !== 'AbortError') toast('저장 실패: ' + (err && err.message));
+  }
+  busy(false);
+}
+
+// 저장해 둔 편집 정보를 화면에 되살림
+async function applyBoard(data) {
+  S.strokes = (data.strokes || []).map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts }));
+  for (const bb of (data.boxes || [])) {
+    const b = { id: bb.id, page: bb.page, x: bb.x, y: bb.y, w: bb.w, h: bb.h, state: bb.state || '', png: bb.png || '', view: bb.view || null, viewKey: bb.viewKey || '' };
+    S.boxes.push(b);
+    buildBoxEl(b);
+  }
+  S.seq = Math.max(1, ...S.strokes.map(o => o.id), ...S.boxes.map(b => b.id)) + 1;
+  layout();
+  renderAllInk();
+  restoreView(data.anchor, data.zoom);
+}
+// 예전 형식(.board.json)
 async function loadFile(file) {
   busy('불러오는 중…');
   try {
-    const text = await file.text();
-    const data = JSON.parse(text);
+    const data = JSON.parse(await file.text());
     if (!data || data.app !== 'pdf-board' || !data.pdf) throw new Error('이 앱에서 저장한 파일이 아닙니다');
-    S.pdfName = data.pdfName || '';
+    S.pdfName = (data.pdfName || file.name).replace(/\.board\.json$/i, '');
     S.pdfB64 = data.pdf;
-    S.zoom = data.zoom || 1;
+    S.fileHandle = null;
     await loadPdfFromB64(S.pdfB64, true);
-    S.strokes = (data.strokes || []).map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, pts: o.pts }));
-    for (const bb of (data.boxes || [])) {
-      const b = { id: bb.id, page: bb.page, x: bb.x, y: bb.y, w: bb.w, h: bb.h, state: bb.state || '', png: bb.png || '', view: bb.view || null, viewKey: bb.viewKey || '' };
-      S.boxes.push(b);
-      buildBoxEl(b);
-    }
-    S.seq = Math.max(1, ...S.strokes.map(o => o.id), ...S.boxes.map(b => b.id)) + 1;
-    layout();
-    renderAllInk();
-    restoreView(data.anchor, data.zoom);
-    toast('불러왔습니다: ' + (S.pdfName || file.name));
+    await applyBoard(data);
+    S.saved = false;
+    toast('불러왔습니다. 저장하면 PDF 형식으로 바뀝니다.');
   } catch (err) {
     toast('불러오기 실패: ' + err.message);
   }
   busy(false);
 }
+
+/* ---------- 자동 저장 (한 번 파일로 저장한 문서만) ---------- */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('pdfBoard', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(v, k);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbGet(k) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const r = db.transaction('kv').objectStore('kv').get(k);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbAutoList() {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const out = [];
+    const r = db.transaction('kv').objectStore('kv').openCursor();
+    r.onsuccess = () => {
+      const c = r.result;
+      if (!c) { res(out.sort((a, b) => b.time - a.time)); return; }
+      if (String(c.key).startsWith('auto:')) out.push({ key: c.key, time: c.value.time, name: c.value.name, slot: c.value.slot });
+      c.continue();
+    };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+let dirty = false, dirtySince = 0, autoTimer = null, autoSlot = 1, autoDir = null, autoBusy = false;
+function markDirty() {
+  if (!S.doc) return;
+  dirty = true;
+  if (!dirtySince) dirtySince = Date.now();
+  if (!S.saved) return;
+  clearTimeout(autoTimer);
+  // 멈추고 30초 뒤, 계속 쓰는 중이어도 3분마다
+  const wait = Math.max(0, Math.min(30000, dirtySince + 180000 - Date.now()));
+  autoTimer = setTimeout(runAutosave, wait);
+}
+async function runAutosave() {
+  if (!dirty || !S.saved || !S.doc || autoBusy) return;
+  if (act || gest) { autoTimer = setTimeout(runAutosave, 3000); return; }
+  autoBusy = true;
+  dirty = false; dirtySince = 0;
+  const slot = autoSlot;
+  autoSlot = slot === 1 ? 2 : 1;
+  try {
+    const data = boardData(true);
+    await idbSet('auto:' + S.pdfName + ':' + slot, { time: Date.now(), name: S.pdfName, slot, pdfB64: S.pdfB64, data });
+  } catch (_) {}
+  if (autoDir && window.PDFLib) {
+    try {
+      const perm = await autoDir.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        const bytes = await buildBoardPdf(true);
+        const fname = saveName().replace(/\.pdf$/i, '') + ' 자동' + slot + '.pdf';
+        const fh = await autoDir.getFileHandle(fname, { create: true });
+        const w = await fh.createWritable();
+        await w.write(bytes);
+        await w.close();
+      } else {
+        showAutoBar('자동 저장 파일을 쓰려면 폴더 사용을 다시 허용해 주세요.', '허용', async () => {
+          if ((await autoDir.requestPermission({ mode: 'readwrite' })) === 'granted') { hideAutoBar(); markDirty(); }
+        });
+      }
+    } catch (_) {}
+  }
+  autoBusy = false;
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && dirty && S.saved) runAutosave(); });
+
+// 크롬·엣지: 자동 저장 폴더 지정 안내
+const autoBar = document.createElement('div');
+autoBar.id = 'autoBar';
+document.body.appendChild(autoBar);
+function showAutoBar(text, okLabel, onOk) {
+  autoBar.innerHTML = '';
+  const t = document.createElement('span'); t.textContent = text;
+  const ok = document.createElement('button'); ok.textContent = okLabel; ok.className = 'ok';
+  const no = document.createElement('button'); no.textContent = '닫기';
+  ok.addEventListener('click', onOk);
+  no.addEventListener('click', hideAutoBar);
+  autoBar.append(t, ok, no);
+  autoBar.classList.add('show');
+}
+function hideAutoBar() { autoBar.classList.remove('show'); }
+function offerAutoFolder() {
+  if (!window.showDirectoryPicker || autoDir) return;
+  showAutoBar('자동 저장 폴더를 정하면 백업 파일 두 개가 번갈아 저장됩니다.', '폴더 정하기', async () => {
+    try {
+      autoDir = await window.showDirectoryPicker({ mode: 'readwrite' });
+      await idbSet('autoDir', autoDir);
+      hideAutoBar();
+      toast('자동 저장 폴더를 정했습니다.');
+    } catch (_) {}
+  });
+}
+(async () => { try { autoDir = (await idbGet('autoDir')) || null; } catch (_) {} })();
+
+// 불러오기 메뉴: 자동 저장본 목록 + 예전 형식 파일
+const loadMenu = document.createElement('div');
+loadMenu.id = 'loadMenu';
+document.body.appendChild(loadMenu);
+function fmtTime(t) {
+  const d = new Date(t);
+  return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+async function openLoadMenu() {
+  loadMenu.innerHTML = '<div class="lm-h">불러오기</div>';
+  const legacy = document.createElement('button');
+  legacy.textContent = '예전 형식 파일 (.board.json)';
+  legacy.addEventListener('click', () => { closeLoadMenu(); fileInput.click(); });
+  let list = [];
+  try { list = await idbAutoList(); } catch (_) {}
+  const h2 = document.createElement('div'); h2.className = 'lm-h';
+  h2.textContent = list.length ? '자동 저장본' : '자동 저장본 없음';
+  loadMenu.append(h2);
+  for (const it of list.slice(0, 12)) {
+    const b = document.createElement('button');
+    b.textContent = it.name.replace(/\.pdf$/i, '') + ' · 자동' + it.slot + ' · ' + fmtTime(it.time);
+    b.addEventListener('click', async () => {
+      closeLoadMenu();
+      busy('자동 저장본 여는 중…');
+      try {
+        const rec = await idbGet(it.key);
+        S.pdfName = rec.name; S.pdfB64 = rec.pdfB64; S.fileHandle = null;
+        await loadPdfFromB64(S.pdfB64, true);
+        await applyBoard(rec.data);
+        S.saved = true;
+        toast('자동 저장본을 열었습니다. 저장을 눌러 파일로 남기세요.');
+      } catch (err) { toast('열지 못했습니다: ' + err.message); }
+      busy(false);
+    });
+    loadMenu.append(b);
+  }
+  loadMenu.append(legacy);
+  const r = $('loadBtn').getBoundingClientRect();
+  loadMenu.classList.add('show');
+  loadMenu.style.left = Math.min(r.left, window.innerWidth - loadMenu.offsetWidth - 8) + 'px';
+  loadMenu.style.top = (r.bottom + 6) + 'px';
+}
+function closeLoadMenu() { loadMenu.classList.remove('show'); }
 
 /* ===================== UI ===================== */
 function setMode(m, silent) {
@@ -2090,7 +2495,10 @@ pdfInput.addEventListener('change', () => {
   pdfInput.value = '';
   if (f) openPdfFile(f);
 });
-$('loadBtn').addEventListener('click', () => fileInput.click());
+$('loadBtn').addEventListener('click', e => { e.stopPropagation(); loadMenu.classList.contains('show') ? closeLoadMenu() : openLoadMenu(); });
+window.addEventListener('pointerdown', e => {
+  if (loadMenu.classList.contains('show') && !loadMenu.contains(e.target) && !$('loadBtn').contains(e.target)) closeLoadMenu();
+}, { capture: true });
 fileInput.addEventListener('change', () => {
   const f = fileInput.files && fileInput.files[0];
   fileInput.value = '';
@@ -2217,7 +2625,7 @@ quickBtn.addEventListener('pointerdown', e => {
 quickBtn.addEventListener('pointermove', e => {
   if (!qd || e.pointerId !== qd.pid) return;
   const dx = e.clientX - qd.sx, dy = e.clientY - qd.sy;
-  if (!qd.moved && Math.hypot(dx, dy) < 6) return;
+  if (!qd.moved && Math.hypot(dx, dy) < 14) return;
   if (!qd.moved) { clearTimeout(qd.timer); closeRing(); }
   qd.moved = true;
   const vr = viewer.getBoundingClientRect();
@@ -2265,6 +2673,7 @@ function addScript(src, onload) {
   s.onerror = () => toast('스크립트를 불러오지 못했습니다: ' + src);
   document.head.appendChild(s);
 }
+addScript('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js');
 addScript(PDFJS_BASE + 'build/pdf.min.js', () => {
   if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'build/pdf.worker.min.js';
