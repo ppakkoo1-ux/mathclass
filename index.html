@@ -79,9 +79,10 @@ button:focus-visible{outline:2px solid var(--active);outline-offset:2px}
 body.pageborder .page{outline:1px solid rgba(0,0,0,.12);outline-offset:0}
 .page canvas{position:absolute;left:0;top:0;display:block}
 .page .pdfc{z-index:1}
-.page .boxes{position:absolute;inset:0;z-index:2}
-.page .inkc{z-index:3;pointer-events:none}
-.pageno{position:absolute;right:6px;bottom:4px;z-index:4;font-size:11px;color:#98a1b3;pointer-events:none}
+.page .inku{z-index:2;pointer-events:none}
+.page .boxes{position:absolute;inset:0;z-index:3}
+.page .inkc{z-index:4;pointer-events:none}
+.pageno{position:absolute;right:6px;bottom:4px;z-index:5;font-size:11px;color:#98a1b3;pointer-events:none}
 
 .ggbbox{position:absolute;background:#fff;border:1px solid transparent;border-radius:6px;
   box-shadow:none;overflow:hidden;transition:border-color .15s, box-shadow .15s}
@@ -285,7 +286,7 @@ const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v20';
+const BUILD = '무한 캔버스 v21';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -511,22 +512,26 @@ function clipBox(ctx, o) {
   return true;
 }
 
+const inkCtx = (p, o) => (o && o.box) ? p.ictx : p.uctx;   // 창 필기는 창 위, 나머지는 창 아래
 function renderInk(p) {
   const i = p.num - 1, ctx = p.ictx;
   if (!p.inkc.width) return;
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, p.inkc.width, p.inkc.height);
-  ctx.restore();
+  for (const c of [p.ictx, p.uctx]) {
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, c.canvas.width, c.canvas.height);
+    c.restore();
+  }
   const selOn = S.tool === 'select' && S.sel.size > 0;
   for (const o of S.strokes) {
     if (o.page !== i) continue;
     const pts = pagePts(o);
     if (!pts) continue;
-    const clipped = clipBox(ctx, o);
-    if (selOn && S.sel.has(o.id)) drawPts(ctx, pts, GLOW, o.width, 10 / S.zoom);
-    drawPts(ctx, pts, o.color, o.width, 0);
-    if (clipped) ctx.restore();
+    const c = inkCtx(p, o);
+    const clipped = clipBox(c, o);
+    if (selOn && S.sel.has(o.id)) drawPts(c, pts, GLOW, o.width, 10 / S.zoom);
+    drawPts(c, pts, o.color, o.width, 0);
+    if (clipped) c.restore();
   }
   if (act && act.pi === i) {
     if (act.kind === 'lasso' && act.path.length > 1) {
@@ -982,7 +987,7 @@ function moveAction(e) {
     }
     const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
     const list = evs.length ? evs : [e];
-    const o = act.o, sp = act.spts, pp = act.ppts, ctx = p.ictx;
+    const o = act.o, sp = act.spts, pp = act.ppts, ctx = inkCtx(p, o);
     ctx.save();
     if (act.box) { ctx.beginPath(); ctx.rect(act.box.x, act.box.y, act.box.w, act.box.h); ctx.clip(); }
     setStyle(ctx, o.color);
@@ -1031,7 +1036,7 @@ function endAction() {
   if (a.kind === 'pen') {
     clearTimeout(a.holdTimer);
     if (!a.snapped) {
-      const ctx = p.ictx;
+      const ctx = inkCtx(p, a.o);
       ctx.save();
       if (a.box) { ctx.beginPath(); ctx.rect(a.box.x, a.box.y, a.box.w, a.box.h); ctx.clip(); }
       if (a.ppts.length === 1) drawPts(ctx, a.ppts, a.o.color, a.o.width, 0);
@@ -1365,6 +1370,7 @@ function release(p) {
   p.front.width = 0; p.front.height = 0;
   p.back.width = 0; p.back.height = 0;
   p.inkc.width = 0; p.inkc.height = 0;
+  p.inku.width = 0; p.inku.height = 0;
   p.frontReg = null; p.inkReg = null;
 }
 // 캔버스 한 장이 너무 커지지 않도록 배율 제한 (모바일 사파리 캔버스 한도)
@@ -1407,11 +1413,14 @@ function sizeInk(p) {
   const reg = regionFor(p, 220, LIM);
   if (!reg) return;
   const k = pixScale(reg, INK_AREA), z = S.zoom;
-  p.inkc.width = Math.max(1, Math.round(reg.w * z * k));
-  p.inkc.height = Math.max(1, Math.round(reg.h * z * k));
-  styleCanvas(p.inkc, reg);
+  for (const c of [p.inkc, p.inku]) {
+    c.width = Math.max(1, Math.round(reg.w * z * k));
+    c.height = Math.max(1, Math.round(reg.h * z * k));
+    styleCanvas(c, reg);
+  }
   p.inkReg = reg; p.inkZoom = z;
   p.ictx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
+  p.uctx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
   renderInk(p);
 }
 let renderingNow = 0;
@@ -1504,14 +1513,15 @@ async function loadPdfFromB64(b64, reset) {
     const pdfc = document.createElement('canvas'); pdfc.className = 'pdfc';
     const pdfc2 = document.createElement('canvas'); pdfc2.className = 'pdfc'; pdfc2.style.visibility = 'hidden';
     const boxes = document.createElement('div'); boxes.className = 'boxes';
-    const inkc = document.createElement('canvas'); inkc.className = 'inkc';
+    const inku = document.createElement('canvas'); inku.className = 'inku';   // 페이지 필기 (지오지브라 창 아래)
+    const inkc = document.createElement('canvas'); inkc.className = 'inkc';   // 창에 붙은 필기·선택 표시 (창 위)
     const no = document.createElement('div'); no.className = 'pageno'; no.textContent = i + ' / ' + doc.numPages;
-    el.append(pdfc, pdfc2, boxes, inkc, no);
+    el.append(pdfc, pdfc2, inku, boxes, inkc, no);
     worldEl.appendChild(el);
     S.pages.push({
       num: i, pageObj: page, w: vp.width, h: vp.height, el,
       front: pdfc, back: pdfc2, frontReg: null, inkReg: null, inkZoom: 0,
-      inkc, ictx: inkc.getContext('2d'), boxesEl: boxes,
+      inkc, ictx: inkc.getContext('2d'), inku, uctx: inku.getContext('2d'), boxesEl: boxes,
       rendered: false, task: null, gen: 0, pending: false
     });
   }
@@ -1952,8 +1962,11 @@ function addBox() {
     const r = p.el.getBoundingClientRect();
     return [(cx - r.left) / S.zoom, (cy - r.top) / S.zoom];
   })();
-  const w = Math.min(p.w * 0.7, 460), h = Math.min(p.h * 0.5, 380);
-  const b = { id: S.seq++, page: pi, x: Math.max(0, Math.min(p.w - w, x - w / 2)), y: Math.max(0, Math.min(p.h - h, y - h / 2)), w, h, state: '', png: '', view: null, viewKey: '' };
+  // 화면에 보이는 크기의 약 60% (너무 작거나 크지 않게)로, 화면 한가운데에 연다
+  const clamp = (v, a, b2) => Math.min(b2, Math.max(a, v));
+  const w = clamp(vr.width * 0.6, 320, 900) / S.zoom;
+  const h = clamp(vr.height * 0.6, 260, 680) / S.zoom;
+  const b = { id: S.seq++, page: pi, x: x - w / 2, y: y - h / 2, w, h, state: '', png: '', view: null, viewKey: '' };
   S.boxes.push(b);
   buildBoxEl(b);
   activateBox(b);
