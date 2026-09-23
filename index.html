@@ -156,6 +156,14 @@ body.lean #toolbar{display:none}
 #loadMenu .lm-h{font-size:12px;color:var(--muted);padding:4px 6px 2px}
 #loadMenu button{text-align:left;height:40px;padding:0 10px;border:0;border-radius:8px;background:var(--btn);color:var(--text);cursor:pointer;font-size:13px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#picker{position:absolute;z-index:78;display:none;flex-direction:column;gap:6px;padding:8px;
+  background:var(--bar);border:1px solid var(--bar-border);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+#picker.show{display:flex}
+#picker canvas{display:block;border-radius:6px;touch-action:none;cursor:crosshair}
+#picker .pk-foot{display:flex;align-items:center;gap:6px}
+#picker #pkPrev{width:28px;height:28px;border-radius:50%;border:1px solid var(--bar-border);display:inline-block}
+#picker button{height:30px;padding:0 10px;border:0;border-radius:8px;background:var(--btn);color:var(--text);cursor:pointer;font-size:12px}
+#picker button.ok{background:var(--active);color:var(--active-text)}
 #eraserRing{position:absolute;z-index:57;pointer-events:none;display:none;border:1.5px solid rgba(29,43,79,.6);
   border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(255,255,255,.7)}
 #selBar{position:absolute;z-index:58;display:none;gap:4px;padding:4px;background:var(--bar);
@@ -275,6 +283,11 @@ body.lean #toolbar{display:none}
 </button>
 <div id="colorRing" role="dialog" aria-label="색과 굵기"></div>
 <div id="eraserRing"></div>
+<div id="picker" role="dialog" aria-label="색 고르기">
+  <canvas id="pkSV" width="180" height="120"></canvas>
+  <canvas id="pkHue" width="180" height="16"></canvas>
+  <div class="pk-foot"><span id="pkPrev"></span><button id="pkReset">기본색</button><button id="pkDone" class="ok">확인</button></div>
+</div>
 <div id="toast" role="status"></div>
 <div id="busy">처리 중…</div>
 <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
@@ -289,11 +302,16 @@ const zoomPct = $('zoomPct'), partialBtn = $('partialBtn'), shapeBtn = $('shapeB
 const undoBtn = $('undoBtn'), redoBtn = $('redoBtn');
 const pdfInput = $('pdfInput'), fileInput = $('fileInput');
 
-const COLORS = ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'];
+const DEF_PAL = {
+  pen: ['#141414', '#e03131', '#1c6fd6', '#2f9e44', '#f08c00'],
+  hl: ['#ffe14d', '#b7f06a', '#7cd4ff', '#ffa8d3', '#ffb44d']
+};
+const COLORS = DEF_PAL.pen;
+const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v24';
+const BUILD = '무한 캔버스 v26';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -303,7 +321,11 @@ const MODE_MSG = {
 
 const S = {
   mode: 'auto', tool: 'pen', kind: 'pen', partial: true, shapeFix: true,
-  color: COLORS[0], width: WIDTHS[1], zoom: 1,
+  color: DEF_PAL.pen[0], width: WIDTHS[1], zoom: 1,
+  pal: { pen: DEF_PAL.pen.slice(), hl: DEF_PAL.hl.slice() },
+  colorOf: { pen: DEF_PAL.pen[0], hl: DEF_PAL.hl[0] },
+  widthOf: { pen: WIDTHS[1], hl: WIDTHS[2] },
+  penKind: 'pen',
   strokes: [], boxes: [], sel: new Set(), undo: [], redo: [], seq: 1,
   pdfName: '', pdfB64: '', doc: null, pages: []
 };
@@ -325,7 +347,10 @@ window.addEventListener('contextmenu', e => {
 
 // 색·굵기 팝업은 화면에 필기(지우개·선택 포함)를 시작할 때 닫힌다 → startAction 참고
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { const r = document.getElementById('colorRing'); if (r) r.classList.remove('show'); }
+  if (e.key === 'Escape') {
+    const r = document.getElementById('colorRing'); if (r) r.classList.remove('show');
+    const pkEl = document.getElementById('picker'); if (pkEl) pkEl.classList.remove('show');
+  }
 });
 
 // 모든 터치를 가장 먼저 기록한다. 필기가 첫 손가락을 가져가도 두 번째 손가락을 알아볼 수 있도록.
@@ -372,7 +397,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #quickBtn, #selBar, #colorRing, #picker, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -1009,6 +1034,7 @@ function startAction(e) {
   const pi = nearestPage(e.clientX, e.clientY);
   if (pi < 0) return false;
   closeRing();
+  closePicker();
   const [x, y] = pagePt(pi, e);
   const z = S.zoom;
   const pid = e.pointerId;
@@ -2567,6 +2593,10 @@ function setTool(t) {
 }
 function setKind(k) {
   S.kind = k;
+  if (k !== 'marker') S.penKind = k;
+  S.color = S.colorOf[grp()];
+  S.width = S.widthOf[grp()];
+  paintPalette();
   if (S.tool !== 'pen') setTool('pen');
   const btn = document.querySelector('[data-tool="pen"]');
   if (btn) {
@@ -2582,6 +2612,12 @@ function cycleKind() {
   const nx = PENS[(i + 1) % PENS.length];
   setKind(nx.k);
   toast(nx.name);
+}
+// 길게 누르기 (색 칸 편집용)
+function longPress(el, fn) {
+  let t = null;
+  el.addEventListener('pointerdown', () => { clearTimeout(t); t = setTimeout(fn, 550); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, () => clearTimeout(t)));
 }
 function toggleEraser() {
   if (act) return;
@@ -2605,15 +2641,44 @@ function applyToSel(fn) {
   renderAllInk();
   return true;
 }
+const grp = () => (S.kind === 'marker' ? 'hl' : 'pen');
+function savePal() { try { localStorage.setItem(PALKEY, JSON.stringify(S.pal)); } catch (_) {} }
+function loadPal() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PALKEY));
+    if (v && Array.isArray(v.pen) && Array.isArray(v.hl)) {
+      S.pal.pen = DEF_PAL.pen.map((c, i) => v.pen[i] || c);
+      S.pal.hl = DEF_PAL.hl.map((c, i) => v.hl[i] || c);
+      S.colorOf.pen = S.pal.pen[0];
+      S.colorOf.hl = S.pal.hl[0];
+    }
+  } catch (_) {}
+}
+// 툴바 색 칸은 지금 펜 종류의 팔레트를 보여준다
+function paintPalette() {
+  const list = S.pal[grp()];
+  document.querySelectorAll('#colors .swatch').forEach((b, i) => {
+    const c = list[i];
+    b.dataset.color = c;
+    b.dataset.idx = i;
+    b.style.setProperty('--c', c);
+    b.classList.toggle('active', c === S.color);
+  });
+  document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('active', Number(b.dataset.width) === S.width));
+}
 function setColor(c) {
   S.color = c;
-  document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('active', b.dataset.color === c));
+  S.colorOf[grp()] = c;
+  paintPalette();
+  markRing();
   if (applyToSel(o => { o.color = c; })) return;
   if (S.tool !== 'pen') setTool('pen');
 }
 function setWidth(w) {
   S.width = w;
-  document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('active', Number(b.dataset.width) === w));
+  S.widthOf[grp()] = w;
+  paintPalette();
+  markRing();
   if (applyToSel(o => { o.width = w; })) return;
   if (S.tool !== 'pen') setTool('pen');
 }
@@ -2646,13 +2711,13 @@ shapeBtn.addEventListener('click', () => {
 });
 
 const colorsEl = $('colors');
-COLORS.forEach(c => {
+DEF_PAL.pen.forEach((c, i) => {
   const b = document.createElement('button');
   b.className = 'swatch';
-  b.dataset.color = c;
-  b.style.setProperty('--c', c);
-  b.setAttribute('aria-label', '색 ' + c);
-  b.addEventListener('click', () => setColor(c));
+  b.dataset.idx = i;
+  b.setAttribute('aria-label', '색 ' + (i + 1));
+  b.addEventListener('click', () => { if (!b._long) setColor(S.pal[grp()][i]); b._long = false; });
+  longPress(b, () => { b._long = true; openPicker(grp(), i); });
   colorsEl.appendChild(b);
 });
 const widthsEl = $('widths');
@@ -2755,25 +2820,41 @@ const PEN_ICON = {
   fountain: '<svg viewBox="0 0 24 24"><path d="M5 19l2.5-7 9-9 2.5 2.5-9 9z"/><path d="M7.5 12l4.5 4.5"/><path d="M12 8.5l3.5 3.5"/></svg>',
   marker: '<svg viewBox="0 0 24 24"><path d="M5 17.5l7.5-7.5 4 4L9 21.5H5z" /><path d="M12.5 10l3-3a2 2 0 0 1 2.8 0l1.2 1.2a2 2 0 0 1 0 2.8l-3 3"/><path d="M4 21.5h6"/></svg>'
 };
+function swatchBtn(group, i) {
+  const b = document.createElement('button');
+  b.className = 'c';
+  b.dataset.rg = group;
+  b.dataset.ri = i;
+  b.setAttribute('aria-label', (group === 'hl' ? '형광펜 색 ' : '펜 색 ') + (i + 1));
+  b.addEventListener('click', () => {
+    if (b._long) { b._long = false; return; }
+    setKind(group === 'hl' ? 'marker' : S.penKind);
+    setColor(S.pal[group][i]);
+    if (S.tool !== 'pen') setTool('pen');
+    markRing();
+  });
+  longPress(b, () => { b._long = true; openPicker(group, i); });
+  return b;
+}
+function kindBtn(k, name) {
+  const b = document.createElement('button');
+  b.className = 'k';
+  b.dataset.rk = k;
+  b.title = name;
+  b.setAttribute('aria-label', name);
+  b.innerHTML = PEN_ICON[k];
+  b.addEventListener('click', () => { setKind(k); markRing(); });
+  return b;
+}
 function buildRing() {
+  const mrow = document.createElement('div'); mrow.className = 'row';
+  mrow.appendChild(kindBtn('marker', '형광펜'));
+  const hrow = document.createElement('div'); hrow.className = 'row';
+  DEF_PAL.hl.forEach((_, i) => hrow.appendChild(swatchBtn('hl', i)));
   const prow = document.createElement('div'); prow.className = 'row';
-  PENS.forEach(pn => {
-    const b = document.createElement('button');
-    b.className = 'k'; b.dataset.rk = pn.k;
-    b.title = pn.name; b.setAttribute('aria-label', pn.name);
-    b.innerHTML = PEN_ICON[pn.k];
-    b.addEventListener('click', () => { setKind(pn.k); markRing(); });
-    prow.appendChild(b);
-  });
-  ring.appendChild(prow);
+  PENS.filter(x => x.k !== 'marker').forEach(pn => prow.appendChild(kindBtn(pn.k, pn.name)));
   const crow = document.createElement('div'); crow.className = 'row';
-  COLORS.forEach(c => {
-    const b = document.createElement('button');
-    b.className = 'c'; b.dataset.rc = c; b.style.setProperty('--c', c);
-    b.setAttribute('aria-label', '색 ' + c);
-    b.addEventListener('click', () => { setColor(c); if (S.tool !== 'pen') setTool('pen'); markRing(); });
-    crow.appendChild(b);
-  });
+  DEF_PAL.pen.forEach((_, i) => crow.appendChild(swatchBtn('pen', i)));
   const wrow = document.createElement('div'); wrow.className = 'row';
   WIDTHS.forEach(w => {
     const b = document.createElement('button');
@@ -2784,13 +2865,118 @@ function buildRing() {
     b.addEventListener('click', () => { setWidth(w); if (S.tool !== 'pen') setTool('pen'); markRing(); });
     wrow.appendChild(b);
   });
-  ring.append(crow, wrow);
+  ring.append(mrow, hrow, prow, crow, wrow);
+  paintRingColors();
+}
+function paintRingColors() {
+  ring.querySelectorAll('[data-rg]').forEach(b => {
+    const c = S.pal[b.dataset.rg][+b.dataset.ri];
+    b.style.setProperty('--c', c);
+    b.dataset.rc = c;
+  });
 }
 function markRing() {
+  paintRingColors();
   ring.querySelectorAll('[data-rk]').forEach(b => b.classList.toggle('active', b.dataset.rk === S.kind));
-  ring.querySelectorAll('[data-rc]').forEach(b => b.classList.toggle('active', b.dataset.rc === S.color));
+  ring.querySelectorAll('[data-rg]').forEach(b =>
+    b.classList.toggle('active', b.dataset.rg === grp() && S.pal[b.dataset.rg][+b.dataset.ri] === S.color));
   ring.querySelectorAll('[data-rw]').forEach(b => b.classList.toggle('active', Number(b.dataset.rw) === S.width));
 }
+/* ---------- 색 칸 편집기 ---------- */
+const pk = { el: null, sv: null, hue: null, g: 'pen', i: 0, h: 0, s: 1, v: 1 };
+function hsv2hex(h, sat, val) {
+  const f = n => {
+    const k = (n + h / 60) % 6;
+    const x = val - val * sat * Math.max(0, Math.min(k, 4 - k, 1));
+    return Math.round(x * 255).toString(16).padStart(2, '0');
+  };
+  return '#' + f(5) + f(3) + f(1);
+}
+function hex2hsv(hex) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let hh = 0;
+  if (d) {
+    if (mx === r) hh = 60 * (((g - b) / d) % 6);
+    else if (mx === g) hh = 60 * ((b - r) / d + 2);
+    else hh = 60 * ((r - g) / d + 4);
+  }
+  if (hh < 0) hh += 360;
+  return { h: hh, s: mx ? d / mx : 0, v: mx };
+}
+function pkDrawHue() {
+  const c = pk.hue.getContext('2d'), w = pk.hue.width, h = pk.hue.height;
+  const g = c.createLinearGradient(0, 0, w, 0);
+  for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, hsv2hex(i * 60, 1, 1));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.strokeStyle = '#fff'; c.lineWidth = 2;
+  c.strokeRect(Math.round(pk.h / 360 * w) - 2, 1, 4, h - 2);
+}
+function pkDrawSV() {
+  const c = pk.sv.getContext('2d'), w = pk.sv.width, h = pk.sv.height;
+  c.fillStyle = hsv2hex(pk.h, 1, 1); c.fillRect(0, 0, w, h);
+  let g = c.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  g = c.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,1)');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.strokeStyle = '#fff'; c.lineWidth = 2;
+  c.beginPath(); c.arc(pk.s * w, (1 - pk.v) * h, 6, 0, Math.PI * 2); c.stroke();
+}
+function pkApply() {
+  const hex = hsv2hex(pk.h, pk.s, pk.v);
+  S.pal[pk.g][pk.i] = hex;
+  document.getElementById('pkPrev').style.background = hex;
+  savePal();
+  paintPalette();
+  markRing();
+  if (grp() === pk.g) setColor(hex);
+}
+function openPicker(group, idx) {
+  closeRing();
+  pk.g = group; pk.i = idx;
+  pk.el = pk.el || document.getElementById('picker');
+  pk.sv = document.getElementById('pkSV');
+  pk.hue = document.getElementById('pkHue');
+  const cur = hex2hsv(S.pal[group][idx]);
+  pk.h = cur.h; pk.s = cur.s; pk.v = cur.v;
+  pkDrawHue(); pkDrawSV();
+  document.getElementById('pkPrev').style.background = S.pal[group][idx];
+  pk.el.classList.add('show');
+  const q = quickBtn.getBoundingClientRect();
+  const w = pk.el.offsetWidth, h = pk.el.offsetHeight;
+  let left = Math.min(Math.max(8, q.left + q.width / 2 - w / 2), window.innerWidth - w - 8);
+  let top = q.top - h - 10;
+  if (top < 70) top = Math.min(q.bottom + 10, window.innerHeight - h - 8);
+  pk.el.style.left = left + 'px';
+  pk.el.style.top = top + 'px';
+}
+function closePicker() { if (pk.el) pk.el.classList.remove('show'); }
+(function initPicker() {
+  const sv = document.getElementById('pkSV'), hue = document.getElementById('pkHue');
+  const drag = (el, fn) => {
+    let on = false;
+    const go = e => {
+      const r = el.getBoundingClientRect();
+      fn(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)));
+    };
+    el.addEventListener('pointerdown', e => { on = true; el.setPointerCapture(e.pointerId); go(e); e.stopPropagation(); });
+    el.addEventListener('pointermove', e => { if (on) { go(e); e.stopPropagation(); } });
+    ['pointerup', 'pointercancel'].forEach(t => el.addEventListener(t, () => { on = false; }));
+  };
+  drag(sv, (x, y) => { pk.s = x; pk.v = 1 - y; pkDrawSV(); pkApply(); });
+  drag(hue, x => { pk.h = x * 360; pkDrawHue(); pkDrawSV(); pkApply(); });
+  document.getElementById('pkDone').addEventListener('click', closePicker);
+  document.getElementById('pkReset').addEventListener('click', () => {
+    S.pal[pk.g][pk.i] = DEF_PAL[pk.g][pk.i];
+    const c = hex2hsv(DEF_PAL[pk.g][pk.i]);
+    pk.h = c.h; pk.s = c.s; pk.v = c.v;
+    pkDrawHue(); pkDrawSV(); pkApply();
+  });
+})();
+
 function openRing(atX, atY) {
   markRing();
   ring.classList.add('show');
@@ -2858,10 +3044,11 @@ setMode('auto', true);
 setTool('pen');
 setPartial(true);
 setShapeFix(true);
-setKind('pen');
-setColor(COLORS[0]);
-setWidth(WIDTHS[1]);
+loadPal();
 buildRing();
+setKind('pen');
+setColor(S.colorOf.pen);
+setWidth(S.widthOf.pen);
 document.body.classList.add('pageborder');
 $('borderBtn').classList.add('active');
 placeQuick();
