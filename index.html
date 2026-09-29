@@ -220,6 +220,9 @@ body.lean #toolbar{display:none}
       <button class="tool" id="shapeBtn" aria-pressed="true" aria-label="도형 보정">
         <svg viewBox="0 0 24 24"><path d="M3 20.5L11.5 12"/><circle cx="16.5" cy="7.5" r="4.5"/></svg><span>도형 보정</span>
       </button>
+      <button class="tool" id="stabBtn" aria-label="떨림 보정">
+        <svg viewBox="0 0 24 24"><path d="M3 14c2-4 3 4 5 0s3 4 5 0 3 4 5 0 2 2 3 1"/><path d="M3 8c3-2 6-2 9 0s6 2 9 0" opacity=".45"/></svg><span id="stabLabel">떨림 보정 약</span>
+      </button>
     </div>
     <div class="sep"></div>
     <div class="group" id="colors"></div>
@@ -324,7 +327,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v29';
+const BUILD = '무한 캔버스 v30';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -333,7 +336,7 @@ const MODE_MSG = {
 };
 
 const S = {
-  mode: 'auto', tool: 'pen', kind: 'pen', partial: true, shapeFix: true,
+  mode: 'auto', tool: 'pen', kind: 'pen', partial: true, shapeFix: true, stab: 'low',
   color: DEF_PAL.pen[0], width: WIDTHS[1], zoom: 1,
   pal: { pen: DEF_PAL.pen.slice(), hl: DEF_PAL.hl.slice() },
   colorOf: { pen: DEF_PAL.pen[0], hl: DEF_PAL.hl[0] },
@@ -1058,6 +1061,25 @@ function captureNow(e) {
   }
   return false;
 }
+/* ---------- 손떨림 보정: 천천히 그을 땐 강하게, 빠르게 그을 땐 약하게 다듬는다 (1€ 필터) ---------- */
+const STAB = { off: null, low: { minC: 4, beta: 0.01 }, high: { minC: 2, beta: 0.006 } };
+const STAB_NAME = { off: '끄기', low: '약', high: '강' };
+// 가로·세로에 같은 강도를 적용해야 곡선이 찌그러지지 않는다
+function makeStab() {
+  const cfg = STAB[S.stab];
+  if (!cfg) return null;
+  const al = (cut, dt) => { const tau = 1 / (2 * Math.PI * cut); return 1 / (1 + tau / dt); };
+  let x = null, y = null, t = 0, sp = 0;
+  return (vx, vy, now) => {
+    if (x === null) { x = vx; y = vy; t = now; return [vx, vy]; }
+    const dt = Math.max(0.001, (now - t) / 1000);
+    t = now;
+    sp += al(1.0, dt) * (Math.hypot(vx - x, vy - y) / dt - sp);
+    const a = al(cfg.minC + cfg.beta * sp, dt);
+    x += a * (vx - x); y += a * (vy - y);
+    return [x, y];
+  };
+}
 function startAction(e) {
   const pi = nearestPage(e.clientX, e.clientY);
   if (pi < 0) return false;
@@ -1090,11 +1112,14 @@ function startAction(e) {
   const bx = boxAt(pi, x, y);
   const useBox = (bx && normView(bx)) ? bx : null;
   const first = useBox ? [...pageToBox(useBox, x, y), p] : [x, y, p];
-  const o = { id: S.seq++, page: pi, box: useBox ? useBox.id : 0, color: S.color, width: S.width, kind: S.kind, pts: [first] };
+  // 굵기는 화면 기준: 확대해서 쓰면 종이 위에는 그만큼 가늘게 저장
+  const o = { id: S.seq++, page: pi, box: useBox ? useBox.id : 0, color: S.color, width: S.width / S.zoom, kind: S.kind, pts: [first] };
   pushUndo(snapshot());
   S.strokes.push(o);
+  const stab = makeStab();
+  if (stab) stab(sc[0], sc[1], e.timeStamp);
   act = {
-    pid, pi, kind: 'pen', o, box: useBox, ppts: [[x, y, p]], spts: [[sc[0], sc[1], p]],
+    pid, pi, kind: 'pen', o, box: useBox, stab, ppts: [[x, y, p]], spts: [[sc[0], sc[1], p]],
     ptype: e.pointerType, t0: performance.now(), anchor: [sc[0], sc[1]], anchorIdx: 0, holdTimer: null, snapped: null
   };
   armHold();
@@ -1119,7 +1144,8 @@ function moveAction(e) {
     if (act.box) { ctx.beginPath(); ctx.rect(act.box.x, act.box.y, act.box.w, act.box.h); ctx.clip(); }
     setStyle(ctx, o.color);
     for (const ev of list) {
-      const sc = screenPt(pi, ev);
+      const raw = screenPt(pi, ev);
+      const sc = act.stab ? act.stab(raw[0], raw[1], ev.timeStamp) : raw;
       const last = sp[sp.length - 1];
       if (Math.hypot(sc[0] - last[0], sc[1] - last[1]) < 0.8) continue;
       const pr = pressureOf(ev);
@@ -2712,7 +2738,7 @@ function setWidth(w) {
   S.widthOf[grp()] = w;
   paintPalette();
   markRing();
-  if (applyToSel(o => { o.width = w; })) return;
+  if (applyToSel(o => { o.width = w / S.zoom; })) return;
   if (S.tool !== 'pen') setTool('pen');
 }
 
@@ -2785,6 +2811,18 @@ $('saveBtn').addEventListener('click', saveFile);
 $('addGgbBtn').addEventListener('click', addBox);
 $('zoomIn').addEventListener('click', () => setZoom(S.zoom * 1.25));
 $('zoomOut').addEventListener('click', () => setZoom(S.zoom / 1.25));
+const STABKEY = 'pdfCanvas.stab';
+function setStab(v) {
+  S.stab = STAB_NAME[v] ? v : 'low';
+  $('stabLabel').textContent = '떨림 보정 ' + STAB_NAME[S.stab];
+  $('stabBtn').classList.toggle('active', S.stab !== 'off');
+  try { localStorage.setItem(STABKEY, S.stab); } catch (_) {}
+}
+$('stabBtn').addEventListener('click', () => {
+  const order = ['off', 'low', 'high'];
+  setStab(order[(order.indexOf(S.stab) + 1) % 3]);
+  toast('손떨림 보정: ' + STAB_NAME[S.stab]);
+});
 const BARKEY = 'pdfCanvas.barBottom';
 function setBarBottom(v) {
   document.body.classList.toggle('barbottom', v);
@@ -3120,6 +3158,7 @@ setPartial(true);
 setShapeFix(true);
 loadPal();
 buildRing();
+try { setStab(localStorage.getItem(STABKEY) || 'low'); } catch (_) { setStab('low'); }
 try { setBarBottom(localStorage.getItem(BARKEY) === '1'); } catch (_) { setBarBottom(false); }
 setKind('pen');
 setColor(S.colorOf.pen);
