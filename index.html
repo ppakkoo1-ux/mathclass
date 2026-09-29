@@ -324,7 +324,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v28';
+const BUILD = '무한 캔버스 v29';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1919,7 +1919,7 @@ function updateToggle(b) {
 function showBoxUI(b) {
   b.el.classList.add('ui-show');
   clearTimeout(b.uiTimer);
-  b.uiTimer = setTimeout(() => b.el.classList.remove('ui-show'), 4000);
+  b.uiTimer = setTimeout(() => b.el.classList.remove('ui-show'), 1200);
 }
 function placeBox(b) {
   if (!b.el) return;
