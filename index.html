@@ -26,6 +26,9 @@ body{
   -webkit-touch-callout:none;
 }
 #app{display:flex;flex-direction:column;height:100%}
+body.barbottom #app{flex-direction:column-reverse}
+body.barbottom #toolbar{border-bottom:0;border-top:1px solid var(--bar-border);
+  padding-top:4px;padding-bottom:max(4px, env(safe-area-inset-bottom))}
 #toolbar{
   display:flex;flex-wrap:wrap;align-items:center;gap:4px;row-gap:4px;flex:0 0 auto;
   padding:4px 8px;padding-top:max(4px, env(safe-area-inset-top));
@@ -249,6 +252,9 @@ body.lean #toolbar{display:none}
     </div>
     <div class="spacer"></div>
     <div class="group">
+      <button class="tool" id="barPosBtn" aria-label="툴바 위치">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="15.5" width="17" height="5" rx="1.5"/><path d="M12 11.5V3.5M8.5 7L12 3.5 15.5 7"/></svg><span>툴바 위치</span>
+      </button>
       <button class="tool" id="leanBtn" aria-label="툴바 접기">
         <svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><path d="M8 20.5l4-3 4 3"/></svg><span>툴바 접기</span>
       </button>
@@ -318,7 +324,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v27';
+const BUILD = '무한 캔버스 v28';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2779,10 +2785,23 @@ $('saveBtn').addEventListener('click', saveFile);
 $('addGgbBtn').addEventListener('click', addBox);
 $('zoomIn').addEventListener('click', () => setZoom(S.zoom * 1.25));
 $('zoomOut').addEventListener('click', () => setZoom(S.zoom / 1.25));
+const BARKEY = 'pdfCanvas.barBottom';
+function setBarBottom(v) {
+  document.body.classList.toggle('barbottom', v);
+  const b = $('barPosBtn');
+  b.querySelector('span').textContent = v ? '툴바 위로' : '툴바 아래로';
+  b.setAttribute('aria-label', v ? '툴바 위로' : '툴바 아래로');
+  b.querySelector('svg').innerHTML = v
+    ? '<rect x="3.5" y="3.5" width="17" height="5" rx="1.5"/><path d="M12 12.5v8M8.5 17l3.5 3.5 3.5-3.5"/>'
+    : '<rect x="3.5" y="15.5" width="17" height="5" rx="1.5"/><path d="M12 11.5V3.5M8.5 7L12 3.5 15.5 7"/>';
+  try { localStorage.setItem(BARKEY, v ? '1' : '0'); } catch (_) {}
+  setTimeout(() => { placeQuick(); placeSelBar(); updateVisible(); }, 30);
+}
 function setLean(v) {
   document.body.classList.toggle('lean', v);
   setTimeout(() => { placeQuick(); placeSelBar(); updateVisible(); }, 30);
 }
+$('barPosBtn').addEventListener('click', () => setBarBottom(!document.body.classList.contains('barbottom')));
 $('leanBtn').addEventListener('click', () => { setLean(true); toast('툴바를 접었습니다. 왼쪽 위 버튼으로 다시 펼칩니다.'); });
 $('expandBtn').addEventListener('click', () => setLean(false));
 $('fsBtn').addEventListener('click', () => {
@@ -2837,12 +2856,13 @@ for (const id of Object.keys(qposOf)) {
 function placeQuick() {
   const vr = viewer.getBoundingClientRect();
   const spanX = Math.max(0, vr.width - QS - 2 * QM), spanY = Math.max(0, vr.height - QS - 2 * QM);
+  const barBottom = document.body.classList.contains('barbottom');
   for (const el of quickBtns) {
     const q = qposOf[el.id];
     let left, top;
     if (q.def) {
       left = el.id === 'quickBtn' ? (vr.left + QM + 54) : (vr.right - QM - QS);   // 왼쪽은 펴기 버튼 옆, 오른쪽은 끝
-      top = vr.bottom - QM - QS;
+      top = barBottom ? (vr.top + QM) : (vr.bottom - QM - QS);   // 툴바가 아래면 버튼은 위쪽에
     } else {
       left = vr.left + QM + q.rx * spanX;
       top = vr.top + QM + q.ry * spanY;
@@ -2851,7 +2871,10 @@ function placeQuick() {
     el.style.top = top + 'px';
   }
   const ex = document.getElementById('expandBtn');
-  if (ex) { ex.style.left = (vr.left + QM) + 'px'; ex.style.top = (vr.bottom - QM - 46) + 'px'; }
+  if (ex) {
+    ex.style.left = (vr.left + QM) + 'px';
+    ex.style.top = (barBottom ? (vr.top + QM) : (vr.bottom - QM - 46)) + 'px';
+  }
 }
 const ring = $('colorRing');
 const PEN_ICON = {
@@ -3097,6 +3120,7 @@ setPartial(true);
 setShapeFix(true);
 loadPal();
 buildRing();
+try { setBarBottom(localStorage.getItem(BARKEY) === '1'); } catch (_) { setBarBottom(false); }
 setKind('pen');
 setColor(S.colorOf.pen);
 setWidth(S.widthOf.pen);
