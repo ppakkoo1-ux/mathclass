@@ -327,7 +327,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v30';
+const BUILD = '무한 캔버스 v35';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -392,7 +392,7 @@ window.addEventListener('pointerdown', e => {
       tt.bad = true;
       gest = null;
       navPts.clear();
-      worldEl.style.transform = 'translate(' + cam.tx + 'px,' + cam.ty + 'px)';
+      applyCam();
       openRing(mx, my);
     }, 600);
   }
@@ -486,11 +486,14 @@ function wAt(o, p, i) {
   if (k === 'ball') return o.width * BALL_MUL;
   if (k === 'marker') return o.width * MARKER_MUL;
   if (k === 'fountain') {
-    const j = Math.max(1, i), a = p[j], b = p[j - 1];
+    if (p.length < 2) return o.width * 0.9;          // 점 하나: 방향이 없으니 기본 굵기
+    const j = Math.min(p.length - 1, Math.max(1, i)), a = p[j], b = p[j - 1];
     const th = Math.atan2(a[1] - b[1], a[0] - b[0]);
-    return o.width * (0.3 + 1.05 * Math.abs(Math.sin(th - NIB))) * (0.8 + 0.4 * p[i][2]);
+    const pr = p[Math.min(Math.max(0, i), p.length - 1)][2];
+    return o.width * (0.3 + 1.05 * Math.abs(Math.sin(th - NIB))) * (0.8 + 0.4 * pr);
   }
-  return o.width * pf(p[i][2]);
+  const q = p[Math.min(Math.max(0, i), p.length - 1)];
+  return o.width * pf(q ? q[2] : 0.5);
 }
 function mid(p, i) { return [(p[i][0] + p[i + 1][0]) / 2, (p[i][1] + p[i + 1][1]) / 2]; }
 function piece(ctx, p, j, o, ex) {
@@ -1388,9 +1391,23 @@ window.addEventListener('pointermove', e => {
       worldEl.style.transformOrigin = ((gest.mx - vr.left) - cam.tx) + 'px ' + ((gest.my - vr.top) - cam.ty) + 'px';
       return;
     }
+    // 처음에는 이동만. 손가락 간격이 8% 넘게 바뀌면 그때부터 확대·축소
+    if (!gest.zoomOn) {
+      if (Math.abs(k - 1) > 0.08) {
+        gest.zoomOn = true;
+        gest.tx0 += gest.dx; gest.ty0 += gest.dy;          // 지금까지의 이동을 확정하고
+        const vr = viewer.getBoundingClientRect();
+        gest.mx = (a.x + b.x) / 2; gest.my = (a.y + b.y) / 2; // 지금 위치를 확대 기준으로
+        gest.dx = 0; gest.dy = 0; gest.k = 1;
+        gest.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        worldEl.style.transformOrigin = ((gest.mx - vr.left) - gest.tx0) + 'px ' + ((gest.my - vr.top) - gest.ty0) + 'px';
+        applyCam('translate(' + gest.tx0 + 'px,' + gest.ty0 + 'px)');
+        return;
+      }
+    }
     // 손가락 떨림을 줄이기 위해 새 값을 조금씩 반영
     const SM = 0.35;
-    gest.k += (k - gest.k) * SM;
+    if (gest.zoomOn) gest.k += (k - gest.k) * SM;
     gest.dx += (dx - gest.dx) * SM;
     gest.dy += (dy - gest.dy) * SM;
     applyCam('translate(' + (gest.tx0 + gest.dx) + 'px,' + (gest.ty0 + gest.dy) + 'px) scale(' + gest.k + ')');
@@ -1422,6 +1439,15 @@ function finishPinch() {
   gest = null;
   worldEl.style.transformOrigin = '0 0';
   if (!g.active) { applyCam(); return; }
+  if (!g.zoomOn) {
+    // 이동만 했으면 배율은 그대로 두고 위치만 확정 (다시 그리기 없음)
+    cam.tx = g.tx0 + g.dx;
+    cam.ty = g.ty0 + g.dy;
+    applyCam();
+    camChanged();
+    saveViewPos();
+    return;
+  }
   const vr = viewer.getBoundingClientRect();
   const nz = Math.min(8, Math.max(0.15, g.z0 * g.k));
   const wx = ((g.mx - vr.left) - g.tx0) / g.z0, wy = ((g.my - vr.top) - g.ty0) / g.z0;
@@ -1476,8 +1502,11 @@ viewer.addEventListener('wheel', e => {
 }, { passive: false });
 
 /* ===================== PDF ===================== */
+// 화면의 실제 화소 경계에 맞춘 값 (어중간한 위치면 브라우저가 그림을 뭉개서 선이 흐려진다)
+const RDPR = window.devicePixelRatio || 1;
+const snapPx = v => Math.round(v * RDPR) / RDPR;
 function applyCam(extra) {
-  worldEl.style.transform = extra || ('translate(' + cam.tx + 'px,' + cam.ty + 'px)');
+  worldEl.style.transform = extra || ('translate(' + snapPx(cam.tx) + 'px,' + snapPx(cam.ty) + 'px)');
 }
 function worldLayout() {
   let y = 0;
@@ -1506,11 +1535,11 @@ function panBy(dx, dy) {
 function layout() {
   const z = S.zoom;
   for (const p of S.pages) {
-    p.el.style.left = (p.wx * z) + 'px';
-    p.el.style.top = (p.wy * z) + 'px';
-    p.el.style.width = (p.w * z) + 'px';
-    p.el.style.height = (p.h * z) + 'px';
-    if (p.frontReg) styleCanvas(p.front, p.frontReg);
+    p.el.style.left = snapPx(p.wx * z) + 'px';
+    p.el.style.top = snapPx(p.wy * z) + 'px';
+    p.el.style.width = snapPx(p.w * z) + 'px';
+    p.el.style.height = snapPx(p.h * z) + 'px';
+    if (p.frontReg) styleCanvas(p.front, p.frontReg, p.frontReg.zoom === z ? p.frontReg.k : 0);
     if (p.inkReg) sizeInk(p);
   }
   for (const b of S.boxes) placeBox(b);
@@ -1562,11 +1591,21 @@ function regionFor(p, pad, lim) {
 }
 const contains = (a, b) => a && b && a.x <= b.x + 0.5 && a.y <= b.y + 0.5 &&
   a.x + a.w >= b.x + b.w - 0.5 && a.y + a.h >= b.y + b.h - 0.5;
-function styleCanvas(c, reg) {
-  c.style.left = (reg.x * S.zoom) + 'px';
-  c.style.top = (reg.y * S.zoom) + 'px';
-  c.style.width = (reg.w * S.zoom) + 'px';
-  c.style.height = (reg.h * S.zoom) + 'px';
+function styleCanvas(c, reg, k) {
+  const z = S.zoom;
+  const L = snapPx(reg.x * z), T = snapPx(reg.y * z);
+  c.style.left = L + 'px';
+  c.style.top = T + 'px';
+  if (k) {
+    // 캔버스 화소 하나가 화면 화소 하나에 정확히 대응하도록
+    c.style.width = (c.width / k) + 'px';
+    c.style.height = (c.height / k) + 'px';
+  } else {
+    // 배율이 바뀐 직후 새 그림이 올 때까지 잠깐 늘려 보여주는 경우
+    c.style.width = (reg.w * z) + 'px';
+    c.style.height = (reg.h * z) + 'px';
+  }
+  return [L, T];
 }
 function ensureInk(p) {
   const need = regionFor(p, 40, LIM);
@@ -1578,14 +1617,16 @@ function sizeInk(p) {
   const reg = regionFor(p, 220, LIM);
   if (!reg) return;
   const k = pixScale(reg, INK_AREA), z = S.zoom;
+  let L = 0, T = 0;
   for (const c of [p.inkc, p.inku]) {
     c.width = Math.max(1, Math.round(reg.w * z * k));
     c.height = Math.max(1, Math.round(reg.h * z * k));
-    styleCanvas(c, reg);
+    [L, T] = styleCanvas(c, reg, k);
   }
   p.inkReg = reg; p.inkZoom = z;
-  p.ictx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
-  p.uctx.setTransform(k * z, 0, 0, k * z, -reg.x * k * z, -reg.y * k * z);
+  // 캔버스 원점을 화소 경계에 맞춘 위치(L, T) 기준으로 그린다
+  p.ictx.setTransform(k * z, 0, 0, k * z, -L * k, -T * k);
+  p.uctx.setTransform(k * z, 0, 0, k * z, -L * k, -T * k);
   renderInk(p);
 }
 let renderingNow = 0;
@@ -1605,10 +1646,11 @@ async function renderPdf(p) {
   back.width = Math.max(1, Math.round(reg.w * sc));
   back.height = Math.max(1, Math.round(reg.h * sc));
   const vp = p.pageObj.getViewport({ scale: sc });
+  const L = snapPx(reg.x * S.zoom), T = snapPx(reg.y * S.zoom);
   const task = p.pageObj.render({
     canvasContext: back.getContext('2d'),
     viewport: vp,
-    transform: [1, 0, 0, 1, -reg.x * sc, -reg.y * sc]
+    transform: [1, 0, 0, 1, -L * k, -T * k]
   });
   p.task = task;
   let ok = false;
@@ -1616,12 +1658,12 @@ async function renderPdf(p) {
   p.task = null;
   if (p.gen === gen && ok) {
     // 새 그림이 완성된 뒤에 바꿔치기 — 지우고 다시 그리는 깜빡임이 없음
-    styleCanvas(back, reg);
+    styleCanvas(back, reg, k);
     back.style.visibility = 'visible';
     p.front.style.visibility = 'hidden';
     p.back = p.front;
     p.front = back;
-    p.frontReg = { x: reg.x, y: reg.y, w: reg.w, h: reg.h, zoom: S.zoom };
+    p.frontReg = { x: reg.x, y: reg.y, w: reg.w, h: reg.h, zoom: S.zoom, k };
     p.rendered = true;
   }
   renderingNow--;
@@ -2895,12 +2937,16 @@ function placeQuick() {
   const vr = viewer.getBoundingClientRect();
   const spanX = Math.max(0, vr.width - QS - 2 * QM), spanY = Math.max(0, vr.height - QS - 2 * QM);
   const barBottom = document.body.classList.contains('barbottom');
+  const lean = document.body.classList.contains('lean');
+  const upTop = barBottom && !lean;   // 아래 툴바가 펼쳐져 있을 때만 버튼을 위로 비켜 둔다
   for (const el of quickBtns) {
     const q = qposOf[el.id];
     let left, top;
     if (q.def) {
-      left = el.id === 'quickBtn' ? (vr.left + QM + 54) : (vr.right - QM - QS);   // 왼쪽은 펴기 버튼 옆, 오른쪽은 끝
-      top = barBottom ? (vr.top + QM) : (vr.bottom - QM - QS);   // 툴바가 아래면 버튼은 위쪽에
+      // 왼쪽 버튼은 펴기 버튼과 같은 줄(아래)에 있을 때만 그 옆으로 비켜 선다
+      const besideExpand = lean && barBottom;
+      left = el.id === 'quickBtn' ? (vr.left + QM + (besideExpand ? 54 : 0)) : (vr.right - QM - QS);   // 왼쪽은 펴기 버튼 옆, 오른쪽은 끝
+      top = upTop ? (vr.top + QM) : (vr.bottom - QM - QS);
     } else {
       left = vr.left + QM + q.rx * spanX;
       top = vr.top + QM + q.ry * spanY;
@@ -2911,7 +2957,8 @@ function placeQuick() {
   const ex = document.getElementById('expandBtn');
   if (ex) {
     ex.style.left = (vr.left + QM) + 'px';
-    ex.style.top = (barBottom ? (vr.top + QM) : (vr.bottom - QM - 46)) + 'px';
+    // 펴기 버튼은 툴바가 있던 쪽에: 위 툴바면 위, 아래 툴바면 아래
+    ex.style.top = (barBottom ? (vr.bottom - QM - 46) : (vr.top + QM)) + 'px';
   }
 }
 const ring = $('colorRing');
