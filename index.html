@@ -327,7 +327,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v35';
+const BUILD = '무한 캔버스 v36';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1067,6 +1067,22 @@ function captureNow(e) {
 /* ---------- 손떨림 보정: 천천히 그을 땐 강하게, 빠르게 그을 땐 약하게 다듬는다 (1€ 필터) ---------- */
 const STAB = { off: null, low: { minC: 4, beta: 0.01 }, high: { minC: 2, beta: 0.006 } };
 const STAB_NAME = { off: '끄기', low: '약', high: '강' };
+const POST_PASSES = { off: 0, low: 2, high: 4 };   // 손을 뗀 뒤 한 번 더 다듬는 횟수
+// 획 전체를 고르게 다듬기 (양 끝점은 고정, 필압은 유지)
+function smoothPts(pts, passes) {
+  if (!passes || pts.length < 5) return pts;
+  let a = pts;
+  for (let k = 0; k < passes; k++) {
+    const b = [a[0]];
+    for (let i = 1; i < a.length - 1; i++) {
+      const p0 = a[i - 1], p1 = a[i], p2 = a[i + 1];
+      b.push([(p0[0] + 2 * p1[0] + p2[0]) / 4, (p0[1] + 2 * p1[1] + p2[1]) / 4, p1[2]]);
+    }
+    b.push(a[a.length - 1]);
+    a = b;
+  }
+  return a;
+}
 // 가로·세로에 같은 강도를 적용해야 곡선이 찌그러지지 않는다
 function makeStab() {
   const cfg = STAB[S.stab];
@@ -1195,6 +1211,15 @@ function endAction() {
   const p = S.pages[a.pi];
   if (a.kind === 'pen') {
     clearTimeout(a.holdTimer);
+    const passes = POST_PASSES[S.stab] || 0;
+    if (!a.snapped && passes && a.o.pts.length >= 5) {
+      // 손을 뗀 뒤 한 번 더 다듬어서 다시 그린다 (그리는 동안에는 지연 없음)
+      a.o.pts = smoothPts(a.o.pts, passes);
+      invalidate(a.o);
+      requestInk(p);
+      updateBtns();
+      return;
+    }
     if (!a.snapped) {
       const ctx = inkCtx(p, a.o);
       ctx.save();
