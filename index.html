@@ -175,7 +175,9 @@ body.lean #toolbar{display:none}
 #drivePanel .dv-crumb{border:0;background:transparent;color:var(--active);padding:4px 2px;font-weight:600}
 #drivePanel .dv-x,#drivePanel .dv-btn{height:34px;padding:0 12px;border:0;border-radius:8px;background:var(--btn);color:var(--text)}
 #drivePanel .ok{background:var(--active);color:var(--active-text)}
-#drivePanel .dv-tools{display:flex;gap:6px;flex-wrap:wrap}
+#drivePanel .dv-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#drivePanel .dv-note{font-size:12px;color:var(--muted)}
+#drivePanel .dv-pick{font-size:13px;font-weight:600;color:var(--active);padding:2px 4px}
 #drivePanel .dv-list{overflow:auto;display:flex;flex-direction:column;gap:4px;min-height:120px}
 #drivePanel .dv-item{text-align:left;border:0;border-radius:8px;background:var(--btn);color:var(--text);padding:10px 12px;
   display:flex;flex-direction:column;gap:2px;font-size:14px}
@@ -356,7 +358,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v39';
+const BUILD = '무한 캔버스 v41';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2085,7 +2087,10 @@ function buildBoxEl(b) {
   b.el = el;
   b.body = el.querySelector('.bxbody');
   (S.pages[b.page] || S.pages[0]).boxesEl.appendChild(el);
-  el.querySelector('.bfile').addEventListener('click', () => { ggbFileTarget = b; ggbFileInput.click(); });
+  el.querySelector('.bfile').addEventListener('click', () => {
+    if (driveConf()) { ggbPickBox = b; openDrive(driveCur ? driveCur.folder.id : null); }
+    else { ggbFileTarget = b; ggbFileInput.click(); }
+  });
   el.querySelector('.bfit').addEventListener('click', () => {
     if (activeBox && activeBox.b === b && activeBox.api) {
       if (!fitConstruction(activeBox.api)) toast('맞출 개체(점, 원, 그래프)가 없습니다.');
@@ -2238,6 +2243,7 @@ function addBox() {
   buildBoxEl(b);
   activateBox(b);
   markDirty();
+  return b;
 }
 
 let ggbFileTarget = null;
@@ -2245,6 +2251,18 @@ const ggbFileInput = document.createElement('input');
 ggbFileInput.type = 'file';
 ggbFileInput.style.display = 'none';
 document.body.appendChild(ggbFileInput);
+function loadGgbIntoBox(b, b64, name) {
+  b.state = b64;
+  b.png = '';
+  if (activeBox && activeBox.b === b && activeBox.api) {
+    try { activeBox.api.setBase64(b64); fitSoon(activeBox.api); } catch (_) { toast('파일을 열지 못했습니다.'); return; }
+  } else {
+    b.pendingFile = b64;
+    activateBox(b);
+  }
+  markDirty();
+  toast('‘' + name + '’을(를) 창에 불러왔습니다.');
+}
 ggbFileInput.addEventListener('change', () => {
   const f = ggbFileInput.files && ggbFileInput.files[0];
   const b = ggbFileTarget;
@@ -2253,18 +2271,7 @@ ggbFileInput.addEventListener('change', () => {
   if (!f || !b) return;
   if (!/\.ggb$/i.test(f.name)) { toast('.ggb 파일만 열 수 있습니다.'); return; }
   const reader = new FileReader();
-  reader.onload = () => {
-    const b64 = String(reader.result).split(',')[1] || '';
-    b.state = b64;
-    b.png = '';
-    if (activeBox && activeBox.b === b && activeBox.api) {
-      try { activeBox.api.setBase64(b64); fitSoon(activeBox.api); } catch (_) { toast('파일을 열지 못했습니다.'); }
-    } else {
-      b.pendingFile = b64;
-      activateBox(b);
-    }
-    toast('‘' + f.name + '’을(를) 창에 불러왔습니다.');
-  };
+  reader.onload = () => loadGgbIntoBox(b, String(reader.result).split(',')[1] || '', f.name);
   reader.onerror = () => toast('파일을 읽지 못했습니다.');
   reader.readAsDataURL(f);
 });
@@ -2603,13 +2610,51 @@ async function driveCall(action, payload) {
   if (!out.ok) throw new Error(out.error || '드라이브 요청 실패');
   return out;
 }
+/* 드라이브 캐시: 폴더 목록과 PDF를 기기에 보관 */
+const DC_MAX_FILES = 40, DC_MAX_BYTES = 400 * 1024 * 1024;
+async function dcGetList(folderId) { try { return await idbGet('dc:list:' + (folderId || 'root')); } catch (_) { return null; } }
+async function dcPutList(folderId, list) {
+  try {
+    await idbSet('dc:list:' + (folderId || 'root'), list);
+    if (!folderId) await idbSet('dc:list:' + list.folder.id, list);   // 보관함은 ID로도 찾을 수 있게
+  } catch (_) {}
+}
+async function dcGetFile(id) { try { return await idbGet('dc:file:' + id); } catch (_) { return null; } }
+async function dcPutFile(rec) {
+  try {
+    await idbSet('dc:file:' + rec.id, rec);
+    const idx = (await idbGet('dc:index')) || [];
+    const rest = idx.filter(x => x.id !== rec.id);
+    rest.push({ id: rec.id, size: rec.bytes.byteLength, used: Date.now() });
+    // 오래 안 연 것부터 정리
+    rest.sort((a, b) => b.used - a.used);
+    let total = 0;
+    const keep = [];
+    for (const x of rest) {
+      if (keep.length < DC_MAX_FILES && total + x.size <= DC_MAX_BYTES) { keep.push(x); total += x.size; }
+      else await idbDel('dc:file:' + x.id);
+    }
+    await idbSet('dc:index', keep);
+  } catch (_) {}
+}
+async function dcTouch(id) {
+  try {
+    const idx = (await idbGet('dc:index')) || [];
+    const it = idx.find(x => x.id === id);
+    if (it) { it.used = Date.now(); await idbSet('dc:index', idx); }
+  } catch (_) {}
+}
 async function saveToDrive(folderId, fileId) {
   busy('드라이브에 저장 중…');
   try {
     const bytes = await buildBoardPdf(false);
     const name = (S.driveFile && fileId) ? S.driveFile.name : saveName();
     const r = await driveCall('save', { folderId, fileId: fileId || null, name, mime: 'application/pdf', data: abToB64(bytes) });
-    S.driveFile = { id: r.id, folderId: r.folderId, name: r.name };
+    S.driveFile = { id: r.id, folderId: r.folderId, name: r.name, modified: r.modified || 0 };
+    // 올린 내용을 그대로 캐시에 (다시 열 때 내려받지 않도록)
+    dcPutFile({ id: r.id, name: r.name, folderId: r.folderId, modified: r.modified || 0, bytes: bytes.slice().buffer });
+    if (fileId) idbDel('dc:file:' + fileId).catch(() => {});
+    refreshListQuiet(r.folderId);
     S.saved = true;
     dirty = false; dirtySince = 0;
     toast('드라이브에 저장했습니다: ' + r.name);
@@ -2623,7 +2668,9 @@ const drivePanel = document.createElement('div');
 drivePanel.id = 'drivePanel';
 document.body.appendChild(drivePanel);
 let driveCur = null;   // 지금 보고 있는 폴더 목록
-function closeDrive() { drivePanel.classList.remove('show'); }
+let ggbPickBox = null;  // 지오지브라 창의 '파일'로 열었을 때 그 창
+function closeDrive() { drivePanel.classList.remove('show'); ggbPickBox = null; }
+const isGgbFile = f => f.mime === 'application/vnd.geogebra.file' || /\.ggb$/i.test(f.name);
 function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
 function driveSettings() {
   const conf = driveConf() || {};
@@ -2645,14 +2692,36 @@ function driveSettings() {
   });
   drivePanel.classList.add('show');
 }
+let driveReq = 0;
+// 저장해 둔 목록으로 연 파일이 드라이브의 최신본과 다르면 알린다
+function checkDriveFresh(list) {
+  const df = S.driveFile;
+  if (!df || !df.modified || df.folderId !== list.folder.id) return;
+  const same = list.files.find(f => f.id === df.id);
+  const newer = same ? same.modified !== df.modified
+                     : list.files.some(f => f.name === df.name);   // 다른 기기에서 저장해 새 파일로 바뀐 경우
+  if (newer) toast('드라이브에 더 새로운 버전이 있습니다. 덮어쓰지 않도록 드라이브에서 다시 열어 주세요.');
+}
+async function refreshListQuiet(folderId) {
+  try { const l = await driveCall('list', { folderId }); dcPutList(folderId, l); } catch (_) {}
+}
 async function openDrive(folderId) {
   if (!driveConf()) { driveSettings(); return; }
   drivePanel.classList.add('show');
-  drivePanel.innerHTML = '<div class="dv-head"><b>드라이브</b><button class="dv-x">닫기</button></div><div class="dv-msg">불러오는 중…</div>';
-  drivePanel.querySelector('.dv-x').addEventListener('click', closeDrive);
+  const req = ++driveReq;
+  const cached = await dcGetList(folderId);
+  if (cached) {
+    driveCur = cached;
+    renderDrive(true);               // 저장해 둔 목록을 바로 보여주고
+  } else {
+    drivePanel.innerHTML = '<div class="dv-head"><b>드라이브</b><button class="dv-x">닫기</button></div><div class="dv-msg">불러오는 중…</div>';
+    drivePanel.querySelector('.dv-x').addEventListener('click', closeDrive);
+  }
+  let fresh;
   try {
-    driveCur = await driveCall('list', { folderId: folderId || null });
+    fresh = await driveCall('list', { folderId: folderId || null });   // 뒤에서 새 목록을 받아
   } catch (err) {
+    if (cached) { if (req === driveReq) renderDrive(false, '갱신 실패: 저장해 둔 목록입니다'); return; }
     drivePanel.querySelector('.dv-msg').textContent = '연결 실패: ' + err.message;
     const b = document.createElement('button');
     b.textContent = '연결 설정';
@@ -2661,34 +2730,51 @@ async function openDrive(folderId) {
     drivePanel.appendChild(b);
     return;
   }
-  renderDrive();
+  dcPutList(folderId, fresh);
+  checkDriveFresh(fresh);
+  if (req !== driveReq || !drivePanel.classList.contains('show')) return;   // 그 사이 다른 폴더로 이동했으면 무시
+  driveCur = fresh;
+  renderDrive(false);
 }
-function renderDrive() {
+function renderDrive(stale, note) {
   const d = driveCur;
   const crumbs = d.path.map((p, i) => '<button class="dv-crumb" data-id="' + p.id + '">' + escapeHtml(p.name) + '</button>' +
     (i < d.path.length - 1 ? '<span>›</span>' : '')).join('');
-  let html = '<div class="dv-head"><div class="dv-path">' + crumbs + '</div><button class="dv-x">닫기</button></div>' +
+  const pick = !!ggbPickBox;
+  let html = (pick ? '<div class="dv-pick">지오지브라 창에 넣을 파일을 고르세요</div>' : '') +
+    '<div class="dv-head"><div class="dv-path">' + crumbs + '</div><button class="dv-x">닫기</button></div>' +
     '<div class="dv-tools">' +
+    (pick ? '<button class="dv-btn" id="dvLocal">기기에서 고르기</button>' : '') +
     '<button class="dv-btn" id="dvNew">새 폴더</button>' +
-    (S.doc ? '<button class="dv-btn ok" id="dvHere">여기에 저장</button>' : '') +
-    '<button class="dv-btn" id="dvConf">연결 설정</button></div><div class="dv-list">';
+    (S.doc && !pick ? '<button class="dv-btn ok" id="dvHere">여기에 저장</button>' : '') +
+    '<button class="dv-btn" id="dvConf">연결 설정</button>' +
+    (stale ? '<span class="dv-note">새 목록 확인 중…</span>' : (note ? '<span class="dv-note">' + escapeHtml(note) + '</span>' : '')) +
+    '</div><div class="dv-list">';
   for (const f of d.folders) html += '<button class="dv-item dv-folder" data-id="' + f.id + '">📁 ' + escapeHtml(f.name) + '</button>';
-  const pdfs = d.files.filter(f => f.mime === 'application/pdf');
+  const ggbs = d.files.filter(isGgbFile);
+  const pdfs = pick ? [] : d.files.filter(f => f.mime === 'application/pdf');
+  for (const f of ggbs) {
+    html += '<button class="dv-item dv-ggb" data-id="' + f.id + '" data-mod="' + f.modified + '">📐 ' + escapeHtml(f.name) +
+      '<small>지오지브라 · ' + fmtTime(f.modified) + ' · ' + fmtSize(f.size) + '</small></button>';
+  }
   for (const f of pdfs) {
-    html += '<button class="dv-item dv-file" data-id="' + f.id + '">📄 ' + escapeHtml(f.name) +
+    html += '<button class="dv-item dv-file" data-id="' + f.id + '" data-mod="' + f.modified + '">📄 ' + escapeHtml(f.name) +
       '<small>' + fmtTime(f.modified) + ' · ' + fmtSize(f.size) + '</small></button>';
   }
-  if (!d.folders.length && !pdfs.length) html += '<div class="dv-msg">비어 있는 폴더입니다.</div>';
+  if (!d.folders.length && !pdfs.length && !ggbs.length) html += '<div class="dv-msg">비어 있는 폴더입니다.</div>';
   html += '</div>';
   drivePanel.innerHTML = html;
   drivePanel.querySelector('.dv-x').addEventListener('click', closeDrive);
   drivePanel.querySelectorAll('.dv-crumb, .dv-folder').forEach(b => b.addEventListener('click', () => openDrive(b.dataset.id)));
-  drivePanel.querySelectorAll('.dv-file').forEach(b => b.addEventListener('click', () => openDriveFile(b.dataset.id)));
+  drivePanel.querySelectorAll('.dv-file').forEach(b => b.addEventListener('click', () => openDriveFile(b.dataset.id, +b.dataset.mod)));
   drivePanel.querySelector('#dvConf').addEventListener('click', driveSettings);
+  drivePanel.querySelectorAll('.dv-ggb').forEach(b => b.addEventListener('click', () => openDriveGgb(b.dataset.id, +b.dataset.mod)));
+  const local = drivePanel.querySelector('#dvLocal');
+  if (local) local.addEventListener('click', () => { ggbFileTarget = ggbPickBox; closeDrive(); ggbFileInput.click(); });
   drivePanel.querySelector('#dvNew').addEventListener('click', async () => {
     const name = window.prompt('새 폴더 이름');
     if (!name) return;
-    try { await driveCall('mkdir', { folderId: d.folder.id, name }); openDrive(d.folder.id); }
+    try { await driveCall('mkdir', { folderId: d.folder.id, name }); await idbDel('dc:list:' + d.folder.id); openDrive(d.folder.id); }
     catch (err) { toast('폴더를 만들지 못했습니다: ' + err.message); }
   });
   const here = drivePanel.querySelector('#dvHere');
@@ -2698,13 +2784,53 @@ function renderDrive() {
     await saveToDrive(d.folder.id, null);
   });
 }
-async function openDriveFile(id) {
+async function openDriveGgb(id, modified) {
+  let target = ggbPickBox;
   closeDrive();
+  if (!target) {
+    if (!S.doc) { toast('먼저 PDF를 연 뒤 지오지브라 파일을 넣을 수 있습니다.'); return; }
+    target = addBox();            // 지금 보는 화면에 새 창을 만들어 넣는다
+  }
+  try {
+    let b64, name;
+    const c = await dcGetFile(id);
+    if (c && modified && c.modified === modified) {
+      b64 = abToB64(c.bytes); name = c.name;
+      dcTouch(id);
+    } else {
+      busy('지오지브라 파일을 받는 중…');
+      const r = await driveCall('read', { fileId: id });
+      b64 = r.data; name = r.name;
+      dcPutFile({ id: r.id, name: r.name, folderId: r.folderId, modified: r.modified || modified || 0, bytes: b64ToBytes(r.data).buffer });
+      busy(false);
+    }
+    loadGgbIntoBox(target, b64, name);
+  } catch (err) {
+    busy(false);
+    toast('지오지브라 파일을 열지 못했습니다: ' + err.message);
+  }
+}
+async function openDriveFile(id, modified) {
+  closeDrive();
+  const c = await dcGetFile(id);
+  if (c && modified && c.modified === modified) {
+    busy('여는 중…');
+    try {
+      await openPdfBytes(new Uint8Array(c.bytes), c.name);
+      S.driveFile = { id: c.id, folderId: c.folderId, name: c.name, modified: c.modified };
+      dcTouch(id);
+      toast(c.name + ' — 저장해 둔 파일로 바로 열었습니다');
+    } catch (err) { toast('열지 못했습니다: ' + err.message); }
+    busy(false);
+    return;
+  }
   busy('드라이브에서 여는 중…');
   try {
     const r = await driveCall('read', { fileId: id });
-    await openPdfBytes(b64ToBytes(r.data), r.name);
-    S.driveFile = { id: r.id, folderId: r.folderId, name: r.name };
+    const bytes = b64ToBytes(r.data);
+    dcPutFile({ id: r.id, name: r.name, folderId: r.folderId, modified: r.modified || modified || 0, bytes: bytes.slice().buffer });
+    await openPdfBytes(bytes, r.name);
+    S.driveFile = { id: r.id, folderId: r.folderId, name: r.name, modified: r.modified || modified || 0 };
   } catch (err) {
     toast('열지 못했습니다: ' + err.message);
   }
@@ -2728,6 +2854,14 @@ async function idbSet(k, v) {
   return new Promise((res, rej) => {
     const tx = db.transaction('kv', 'readwrite');
     tx.objectStore('kv').put(v, k);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbDel(k) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').delete(k);
     tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
   });
 }
