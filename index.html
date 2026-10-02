@@ -121,6 +121,15 @@ body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
 
 #empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);
   font-size:15px;line-height:1.7;padding:24px;pointer-events:none}
+#leanStack{position:absolute;z-index:61;display:none;flex-direction:column;gap:8px}
+body.lean #leanStack{display:flex}
+#leanStack .ls{width:46px;height:46px;border-radius:10px;border:1px solid var(--bar-border);background:var(--bar);color:var(--text);
+  display:grid;place-items:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.14);touch-action:manipulation}
+#leanStack .ls svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#leanStack .ls:disabled{opacity:.4}
+#leanStack .ls.active{background:var(--active);color:var(--active-text);border-color:transparent}
+body.lean .quick{width:46px;height:46px}
+body.lean .quick svg{width:22px;height:22px}
 .quick{
   position:absolute;z-index:60;left:0;top:0;width:58px;height:58px;padding:0;border-radius:50%;
   border:1px solid var(--bar-border);background:var(--bar);color:var(--text);
@@ -236,6 +245,15 @@ body.lean #toolbar{display:none}
     </div>
     <div class="sep"></div>
     <div class="group">
+      <button class="tool" id="undoBtn" aria-label="되돌리기">
+        <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>되돌리기</span>
+      </button>
+      <button class="tool" id="redoBtn" aria-label="필기 다시 실행">
+        <svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span>다시 실행</span>
+      </button>
+    </div>
+    <div class="sep"></div>
+    <div class="group">
       <button class="tool" data-tool="pen" aria-label="펜">
         <svg viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.3 4.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19z"/><path d="M14.5 6.3l3.2 3.2"/></svg><span>펜</span>
       </button>
@@ -295,12 +313,6 @@ body.lean #toolbar{display:none}
       <button class="tool" id="fsBtn" aria-label="전체화면">
         <svg viewBox="0 0 24 24"><path d="M4 9V4.5h5M20 9V4.5h-5M4 15v4.5h5M20 15v4.5h-5"/></svg><span>전체화면</span>
       </button>
-      <button class="tool" id="undoBtn" aria-label="되돌리기">
-        <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span>되돌리기</span>
-      </button>
-      <button class="tool" id="redoBtn" aria-label="필기 다시 실행">
-        <svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg><span>다시 실행</span>
-      </button>
     </div>
   </header>
 
@@ -325,6 +337,11 @@ body.lean #toolbar{display:none}
 <button id="expandBtn" aria-label="툴바 펼치기">
   <svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/><path d="M8 3.5l4 3 4-3"/></svg>
 </button>
+<div id="leanStack" aria-label="빠른 버튼">
+  <button id="lsSelect" class="ls" aria-label="영역 선택"><svg viewBox="0 0 24 24"><path d="M12 4.5c4.4 0 8 2.1 8 4.8s-3.6 4.8-8 4.8-8-2.1-8-4.8 3.6-4.8 8-4.8z" stroke-dasharray="2.6 2.4"/><path d="M7.5 13.3c-1 1.6-.6 3.2 1 3.9 1.3.6 1.4 2 .2 3.3"/></svg></button>
+  <button id="lsRedo" class="ls" aria-label="다시 실행"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+  <button id="lsUndo" class="ls" aria-label="되돌리기"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+</div>
 <div id="colorRing" role="dialog" aria-label="색과 굵기"></div>
 <div id="eraserRing"></div>
 <div id="picker" role="dialog" aria-label="색 고르기">
@@ -358,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v41';
+const BUILD = '무한 캔버스 v42';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -389,7 +406,7 @@ window.addEventListener('contextmenu', e => {
   const t = e.target;
   if (!(t instanceof Node) || !t.closest) return;
   if (t.closest('.ggbbox.live.manip')) return;
-  if (t.closest('#viewer, .quick, #colorRing, #selBar, #expandBtn')) e.preventDefault();
+  if (t.closest('#viewer, .quick, #leanStack, #colorRing, #selBar, #expandBtn')) e.preventDefault();
 }, { capture: true });
 
 // 색·굵기 팝업은 화면에 필기(지우개·선택 포함)를 시작할 때 닫힌다 → startAction 참고
@@ -459,7 +476,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, .quick, #selBar, #colorRing, #picker, #drivePanel, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -764,6 +781,9 @@ function redo() { if (act || !S.redo.length) return; S.undo.push(snapshot()); re
 function updateBtns() {
   undoBtn.disabled = !S.undo.length;
   redoBtn.disabled = !S.redo.length;
+  const lu = document.getElementById('lsUndo'), lr = document.getElementById('lsRedo');
+  if (lu) lu.disabled = !S.undo.length;
+  if (lr) lr.disabled = !S.redo.length;
 }
 function deleteSel() {
   if (act || !S.sel.size) return;
@@ -3015,6 +3035,8 @@ function setTool(t) {
   S.tool = t;
   if (t !== 'select') S.sel.clear();
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+  const ls = document.getElementById('lsSelect');
+  if (ls) ls.classList.toggle('active', t === 'select');
   quickBtns.forEach(q => q.classList.toggle('eraser', t === 'eraser'));
   renderAllInk();
   placeSelBar();
@@ -3252,6 +3274,9 @@ $('borderBtn').addEventListener('click', () => {
   $('borderBtn').setAttribute('aria-pressed', String(on));
 });
 undoBtn.addEventListener('click', undo);
+$('lsUndo').addEventListener('click', undo);
+$('lsRedo').addEventListener('click', redo);
+$('lsSelect').addEventListener('click', () => setTool(S.tool === 'select' ? 'pen' : 'select'));
 redoBtn.addEventListener('click', redo);
 $('selDel').addEventListener('click', deleteSel);
 $('selDone').addEventListener('click', clearSel);
@@ -3271,9 +3296,10 @@ for (const id of Object.keys(qposOf)) {
 }
 function placeQuick() {
   const vr = viewer.getBoundingClientRect();
-  const spanX = Math.max(0, vr.width - QS - 2 * QM), spanY = Math.max(0, vr.height - QS - 2 * QM);
   const barBottom = document.body.classList.contains('barbottom');
   const lean = document.body.classList.contains('lean');
+  const QS = lean ? 46 : 58;          // 접은 상태에서는 다른 빠른 버튼과 같은 크기
+  const spanX = Math.max(0, vr.width - QS - 2 * QM), spanY = Math.max(0, vr.height - QS - 2 * QM);
   const upTop = barBottom && !lean;   // 아래 툴바가 펼쳐져 있을 때만 버튼을 위로 비켜 둔다
   for (const el of quickBtns) {
     const q = qposOf[el.id];
@@ -3295,6 +3321,14 @@ function placeQuick() {
     ex.style.left = (vr.left + QM) + 'px';
     // 펴기 버튼은 툴바가 있던 쪽에: 위 툴바면 위, 아래 툴바면 아래
     ex.style.top = (barBottom ? (vr.bottom - QM - 46) : (vr.top + QM)) + 'px';
+  }
+  // 접은 상태: 되돌리기·다시 실행·영역 선택을 펴기 버튼 위로 쌓는다 (툴바가 위였으면 아래로)
+  const st = document.getElementById('leanStack');
+  if (st && lean) {
+    const h = st.offsetHeight || (46 * 3 + 16);
+    st.style.left = (vr.left + QM) + 'px';
+    st.style.top = (barBottom ? (vr.bottom - QM - 46 - 8 - h) : (vr.top + QM + 46 + 8)) + 'px';
+    st.style.flexDirection = barBottom ? 'column' : 'column-reverse';
   }
 }
 const ring = $('colorRing');
@@ -3503,7 +3537,8 @@ function wireQuick(el) {
     if (!qd.moved) { clearTimeout(qd.timer); closeRing(); }
     qd.moved = true;
     const vr = viewer.getBoundingClientRect();
-    const spanX = Math.max(1, vr.width - QS - 2 * QM), spanY = Math.max(1, vr.height - QS - 2 * QM);
+    const qs = document.body.classList.contains('lean') ? 46 : QS;
+    const spanX = Math.max(1, vr.width - qs - 2 * QM), spanY = Math.max(1, vr.height - qs - 2 * QM);
     const q = qposOf[el.id];
     q.rx = clamp01((qd.l + dx - vr.left - QM) / spanX);
     q.ry = clamp01((qd.t + dy - vr.top - QM) / spanY);
