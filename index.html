@@ -375,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v44';
+const BUILD = '무한 캔버스 v45';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -3042,8 +3042,12 @@ async function openLoadMenu() {
   loadMenu.append(legacy);
   const r = $('loadBtn').getBoundingClientRect();
   loadMenu.classList.add('show');
-  loadMenu.style.left = Math.min(r.left, window.innerWidth - loadMenu.offsetWidth - 8) + 'px';
-  loadMenu.style.top = (r.bottom + 6) + 'px';
+  loadMenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - loadMenu.offsetWidth - 8)) + 'px';
+  // 툴바가 아래에 있으면 버튼 위쪽으로 펼친다 (아래로 펼치면 화면 밖으로 나감)
+  const h = loadMenu.offsetHeight;
+  let top = document.body.classList.contains('barbottom') ? (r.top - h - 6) : (r.bottom + 6);
+  top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
+  loadMenu.style.top = top + 'px';
 }
 function closeLoadMenu() { loadMenu.classList.remove('show'); }
 
