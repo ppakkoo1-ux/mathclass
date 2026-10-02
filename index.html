@@ -375,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v42';
+const BUILD = '무한 캔버스 v44';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -677,7 +677,8 @@ function clipBox(ctx, o) {
 const inkCtx = (p, o) => (o && o.box) ? p.ictx : p.uctx;   // 창 필기는 창 위, 나머지는 창 아래
 function renderInk(p) {
   const i = p.num - 1, ctx = p.ictx;
-  if (!p.inkc.width) return;
+  if (!p.inku.width) return;
+  if (!p.overFull && overNeeded(p)) { sizeInk(p); return; }   // 위층이 필요해지면 키우고 다시 그림
   for (const c of [p.ictx, p.uctx]) {
     c.save();
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -1174,6 +1175,7 @@ function startAction(e) {
     }
     S.sel.clear();
     act = { pid, pi, kind: 'lasso', path: [[x, y]], ptype: e.pointerType, t0: performance.now() };
+    if (!S.pages[pi].overFull) sizeInk(S.pages[pi]);
     renderAllInk();
     return true;
   }
@@ -1192,6 +1194,7 @@ function startAction(e) {
     pid, pi, kind: 'pen', o, box: useBox, stab, ppts: [[x, y, p]], spts: [[sc[0], sc[1], p]],
     ptype: e.pointerType, t0: performance.now(), anchor: [sc[0], sc[1]], anchorIdx: 0, holdTimer: null, snapped: null
   };
+  if (useBox && !S.pages[pi].overFull) sizeInk(S.pages[pi]);
   armHold();
   return true;
 }
@@ -1683,6 +1686,18 @@ function styleCanvas(c, reg, k) {
   }
   return [L, T];
 }
+// 화면 화소가 아주 많은 기기(4K 칠판 등)에서는 미리 그려 두는 범위를 줄여 그래픽 메모리를 아낀다
+function bigScreen() {
+  const r = viewer.getBoundingClientRect();
+  return r.width * r.height * RDPR * RDPR > 4.5e6;
+}
+// 창 위 필기 캔버스가 필요한 경우: 창에 붙은 필기, 영역 선택, 올가미, 창 위에 그리는 중
+function overNeeded(p) {
+  const i = p.num - 1;
+  if (act && act.pi === i && (act.kind === 'lasso' || (act.kind === 'pen' && act.box))) return true;
+  if (S.tool === 'select' && S.sel.size) return true;
+  return S.strokes.some(o => o.page === i && o.box);
+}
 function ensureInk(p) {
   const need = regionFor(p, 40, LIM);
   if (!need) return;
@@ -1690,15 +1705,17 @@ function ensureInk(p) {
   sizeInk(p);
 }
 function sizeInk(p) {
-  const reg = regionFor(p, 220, LIM);
+  const reg = regionFor(p, bigScreen() ? 100 : 220, LIM);
   if (!reg) return;
   const k = pixScale(reg, INK_AREA), z = S.zoom;
-  let L = 0, T = 0;
-  for (const c of [p.inkc, p.inku]) {
-    c.width = Math.max(1, Math.round(reg.w * z * k));
-    c.height = Math.max(1, Math.round(reg.h * z * k));
-    [L, T] = styleCanvas(c, reg, k);
-  }
+  const W = Math.max(1, Math.round(reg.w * z * k)), H = Math.max(1, Math.round(reg.h * z * k));
+  p.inku.width = W; p.inku.height = H;
+  let [L, T] = styleCanvas(p.inku, reg, k);
+  // 위층은 쓸 일이 있을 때만 제 크기로 (평소엔 최소 크기로 두어 메모리 절약)
+  p.overFull = overNeeded(p);
+  p.inkc.width = p.overFull ? W : 1;
+  p.inkc.height = p.overFull ? H : 1;
+  styleCanvas(p.inkc, reg, p.overFull ? k : 0);
   p.inkReg = reg; p.inkZoom = z;
   // 캔버스 원점을 화소 경계에 맞춘 위치(L, T) 기준으로 그린다
   p.ictx.setTransform(k * z, 0, 0, k * z, -L * k, -T * k);
@@ -1716,7 +1733,7 @@ async function renderPdf(p) {
   p.pending = false;
   renderingNow++;
   const gen = p.gen;
-  const reg = regionFor(p, 600) || need;
+  const reg = regionFor(p, bigScreen() ? 250 : 600) || need;
   const k = pixScale(reg), sc = S.zoom * k;
   const back = p.back;
   back.width = Math.max(1, Math.round(reg.w * sc));
@@ -1739,6 +1756,7 @@ async function renderPdf(p) {
     p.front.style.visibility = 'hidden';
     p.back = p.front;
     p.front = back;
+    p.back.width = 0; p.back.height = 0;      // 이전 그림은 바로 비워 메모리를 돌려준다
     p.frontReg = { x: reg.x, y: reg.y, w: reg.w, h: reg.h, zoom: S.zoom, k };
     p.rendered = true;
   }
@@ -1801,9 +1819,16 @@ async function loadPdfFromB64(b64, reset) {
     const no = document.createElement('div'); no.className = 'pageno'; no.textContent = i + ' / ' + doc.numPages;
     el.append(pdfc, pdfc2, inku, boxes, inkc, no);
     worldEl.appendChild(el);
+    const pidx = S.pages.length;
+    for (const c of [pdfc, pdfc2, inku, inkc]) {
+      c.addEventListener('contextrestored', () => {
+        const pg = S.pages[pidx];
+        if (pg) { release(pg); updateVisible(); }
+      });
+    }
     S.pages.push({
       num: i, pageObj: page, w: vp.width, h: vp.height, el,
-      front: pdfc, back: pdfc2, frontReg: null, inkReg: null, inkZoom: 0,
+      front: pdfc, back: pdfc2, frontReg: null, inkReg: null, inkZoom: 0, overFull: false,
       inkc, ictx: inkc.getContext('2d'), inku, uctx: inku.getContext('2d'), boxesEl: boxes,
       rendered: false, task: null, gen: 0, pending: false
     });
