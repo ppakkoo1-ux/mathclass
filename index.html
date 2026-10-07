@@ -375,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v47';
+const BUILD = '무한 캔버스 v49';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -710,17 +710,55 @@ function renderInk(p) {
   }
   if (selOn) placeSelBar();
 }
+// 페이지의 일부(사각형, 페이지 좌표)만 지우고 그 안에 걸치는 획만 다시 그린다
+function renderInkRect(p, r) {
+  if (!p.inku.width) return;
+  if (!p.overFull && overNeeded(p)) { sizeInk(p); return; }
+  if (act && act.pi === p.num - 1 && act.kind === 'lasso') { renderInk(p); return; }
+  const i = p.num - 1;
+  for (const c of [p.ictx, p.uctx]) {
+    const m = c.getTransform();
+    // 화면 화소 경계에 맞춘 정수 사각형으로 잘라야 경계에 얼룩이 남지 않는다
+    const ix0 = Math.floor(m.a * r.x0 + m.e) - 2, iy0 = Math.floor(m.d * r.y0 + m.f) - 2;
+    const ix1 = Math.ceil(m.a * r.x1 + m.e) + 2, iy1 = Math.ceil(m.d * r.y1 + m.f) + 2;
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.beginPath(); c.rect(ix0, iy0, ix1 - ix0, iy1 - iy0); c.clip();
+    c.clearRect(ix0, iy0, ix1 - ix0, iy1 - iy0);
+    c.setTransform(m);
+  }
+  const selOn = S.tool === 'select' && S.sel.size > 0;
+  for (const o of S.strokes) {
+    if (o.page !== i) continue;
+    const pts = pagePts(o);
+    if (!pts) continue;
+    const b = o._bb, pad = effWidth(o) + 12 / S.zoom;
+    if (b.x1 + pad < r.x0 || b.x0 - pad > r.x1 || b.y1 + pad < r.y0 || b.y0 - pad > r.y1) continue;
+    const c = inkCtx(p, o);
+    const clipped = clipBox(c, o);
+    if (selOn && S.sel.has(o.id)) drawPts(c, pts, GLOW, o, 10 / S.zoom);
+    drawPts(c, pts, o.color, o, 0);
+    if (clipped) c.restore();
+  }
+  for (const c of [p.ictx, p.uctx]) c.restore();
+}
+const unionRect = (a, b) => (!a ? b : !b ? a : { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) });
 const inkPending = new Set();
 let inkRaf = 0;
-function requestInk(p) {
-  inkPending.add(p);
+function flushInk() {
   if (inkRaf) return;
   inkRaf = requestAnimationFrame(() => {
     inkRaf = 0;
-    for (const q of inkPending) renderInk(q);
+    for (const q of inkPending) {
+      if (q._full) renderInk(q);
+      else if (q._dirty) renderInkRect(q, q._dirty);
+      q._full = false; q._dirty = null;
+    }
     inkPending.clear();
   });
 }
+function requestInk(p) { p._full = true; inkPending.add(p); flushInk(); }
+function requestInkRect(p, r) { if (!r) return; p._dirty = unionRect(p._dirty, r); inkPending.add(p); flushInk(); }
 const eraserRingEl = document.getElementById('eraserRing');
 function showEraserRing(e, r) {
   const d = r * S.zoom * 2;
@@ -764,16 +802,21 @@ function placeSelBar() {
 }
 
 /* ===================== 실행 취소 ===================== */
-const snapshot = () => JSON.stringify(S.strokes, (k, v) => (k.charAt(0) === '_' ? undefined : v));
+// 되돌리기 기록은 획 목록(참조)만 보관한다. 획은 한 번 만들면 고치지 않고, 바꿀 때는 새로 만든다.
+const snapshot = () => S.strokes.slice();
+const sameSnap = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+function cloneStroke(o) {
+  return { id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts: o.pts.map(q => q.slice()) };
+}
 function pushUndo(s) {
   if (typeof markDirty === 'function') markDirty();
   S.undo.push(s);
-  if (S.undo.length > 120) S.undo.shift();
+  if (S.undo.length > 50) S.undo.shift();
   S.redo.length = 0;
   updateBtns();
 }
-function restore(json) {
-  S.strokes = JSON.parse(json);
+function restore(snap) {
+  S.strokes = snap.slice();
   S.sel.clear();
   renderAllInk();
 }
@@ -853,28 +896,37 @@ function cutStroke(s, cx, cy, r, minLen) {
   if (!changed) return null;
   return res.filter(pl => polyLen(pl) >= minLen);
 }
+// 지운 것이 있으면 다시 그려야 할 범위(페이지 좌표 사각형)를, 없으면 null 을 돌려준다
 function eraseAt(pi, x, y, a) {
   if (!a.partial) {
-    const n = S.strokes.length;
-    S.strokes = S.strokes.filter(o => o.page !== pi || !hitStroke(o, x, y, a.r));
-    return S.strokes.length !== n;
+    let dirty = null;
+    S.strokes = S.strokes.filter(o => {
+      if (o.page !== pi || !hitStroke(o, x, y, a.r)) return true;
+      const b = o._bb, w = effWidth(o);
+      dirty = unionRect(dirty, { x0: b.x0 - w, y0: b.y0 - w, x1: b.x1 + w, y1: b.y1 + w });
+      return false;
+    });
+    return dirty;
   }
   const out = [];
-  let changed = false;
+  let changed = false, maxW = 0;
   for (const o of S.strokes) {
     const sp = o.page === pi ? pagePts(o) : null;
     if (!sp || !nearBB(o._bb, x, y, a.r + effWidth(o))) { out.push(o); continue; }
     const pieces = cutStroke(sp, x, y, a.r + effWidth(o) / 2, 1 / S.zoom);
     if (!pieces) { out.push(o); continue; }
     changed = true;
+    maxW = Math.max(maxW, effWidth(o));
     const b = o.box ? boxById(o.box) : null;
     for (const pc of pieces) {
       const pts = (b && normView(b)) ? pc.map(q => { const t = pageToBox(b, q[0], q[1]); return [t[0], t[1], q[2]]; }) : pc;
       out.push({ id: S.seq++, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts });
     }
   }
-  if (changed) S.strokes = out;
-  return changed;
+  if (!changed) return null;
+  S.strokes = out;
+  const e = a.r + maxW + 2 / S.zoom;
+  return { x0: x - e, y0: y - e, x1: x + e, y1: y + e };
 }
 function inPoly(x, y, poly) {
   let inside = false;
@@ -1164,13 +1216,15 @@ function startAction(e) {
   if (S.tool === 'eraser' || isPenEraser(e)) {
     act = { pid, pi, kind: 'eraser', partial: S.partial, r, snap: snapshot(), changed: false, last: [x, y], ptype: e.pointerType, t0: performance.now() };
     showEraserRing(e, r);
-    if (eraseAt(pi, x, y, act)) { act.changed = true; requestInk(S.pages[pi]); }
+    const d0 = eraseAt(pi, x, y, act);
+    if (d0) { act.changed = true; requestInkRect(S.pages[pi], d0); }
     return true;
   }
   if (S.tool === 'select') {
     const s = selBBoxPage();
     if (s && s.pi === pi && nearBB(s.bb, x, y, 12 / z)) {
       act = { pid, pi, kind: 'move', snap: snapshot(), last: [x, y], moved: false, ptype: e.pointerType, t0: performance.now() };
+      S.strokes = S.strokes.map(o => (S.sel.has(o.id) ? cloneStroke(o) : o));   // 기록 속 원본은 그대로 둔다
       return true;
     }
     S.sel.clear();
@@ -1230,7 +1284,13 @@ function moveAction(e) {
       if (!solid) piece(ctx, pp, pp.length - 1, o, 0);
     }
     ctx.restore();
-    if (solid && added) requestInk(p);   // 겹침 얼룩이 생기지 않도록 획 전체를 다시 그림
+    if (solid && added) {
+      // 이음매 없이 그리기 위해 획을 다시 그리되, 새로 바뀐 끝부분 주변만 다시 그린다
+      const n = pp.length, w = effWidth(o) / 2 + 2 / S.zoom;
+      let r = null;
+      for (let k = Math.max(0, n - 4); k < n; k++) r = unionRect(r, { x0: pp[k][0] - w, y0: pp[k][1] - w, x1: pp[k][0] + w, y1: pp[k][1] + w });
+      if (o.box) requestInk(p); else requestInkRect(p, r);
+    }
     const lp = sp[sp.length - 1];
     if (Math.hypot(lp[0] - act.anchor[0], lp[1] - act.anchor[1]) > 4) {
       act.anchor = [lp[0], lp[1]];
@@ -1243,13 +1303,13 @@ function moveAction(e) {
   if (act.kind === 'eraser') {
     const [lx, ly] = act.last;
     const steps = Math.max(1, Math.ceil(Math.hypot(x - lx, y - ly) / (act.r * 0.5)));
-    let changedNow = false;
+    let dirty = null;
     for (let i = 1; i <= steps; i++) {
-      if (eraseAt(pi, lx + (x - lx) * i / steps, ly + (y - ly) * i / steps, act)) changedNow = true;
+      dirty = unionRect(dirty, eraseAt(pi, lx + (x - lx) * i / steps, ly + (y - ly) * i / steps, act));
     }
     act.last = [x, y];
     showEraserRing(e, act.r);
-    if (changedNow) { act.changed = true; requestInk(p); }
+    if (dirty) { act.changed = true; requestInkRect(p, dirty); }
   } else if (act.kind === 'lasso') {
     const l = act.path[act.path.length - 1];
     if (Math.hypot(x - l[0], y - l[1]) >= 2 / S.zoom) { act.path.push([x, y]); renderInk(p); }
@@ -1268,9 +1328,14 @@ function endAction() {
     const passes = POST_PASSES[S.stab] || 0;
     if (!a.snapped && passes && a.o.pts.length >= 5) {
       // 손을 뗀 뒤 한 번 더 다듬어서 다시 그린다 (그리는 동안에는 지연 없음)
+      const before = pagePts(a.o) ? a.o._bb : null;
       a.o.pts = smoothPts(a.o.pts, passes);
       invalidate(a.o);
-      requestInk(p);
+      const after = pagePts(a.o) ? a.o._bb : null;
+      const w = effWidth(a.o) + 4 / S.zoom;
+      const bb = unionRect(before && { x0: before.x0, y0: before.y0, x1: before.x1, y1: before.y1 }, after);
+      if (bb && !a.o.box) requestInkRect(p, { x0: bb.x0 - w, y0: bb.y0 - w, x1: bb.x1 + w, y1: bb.y1 + w });
+      else requestInk(p);
       updateBtns();
       return;
     }
@@ -1287,7 +1352,7 @@ function endAction() {
     updateBtns();
   } else if (a.kind === 'eraser') {
     hideEraserRing();
-    if (a.changed && a.snap !== snapshot()) pushUndo(a.snap);
+    if (a.changed && !sameSnap(a.snap, S.strokes)) pushUndo(a.snap);
     renderInk(p);
   } else if (a.kind === 'lasso') {
     selectByLasso(a.pi, a.path);
@@ -1304,7 +1369,7 @@ function cancelAction() {
   clearTimeout(a.holdTimer);
   hideEraserRing();
   if (a.kind === 'pen') { S.strokes = S.strokes.filter(o => o !== a.o); S.undo.pop(); }
-  else if (a.kind === 'eraser' || a.kind === 'move') S.strokes = JSON.parse(a.snap);
+  else if (a.kind === 'eraser' || a.kind === 'move') S.strokes = a.snap.slice();
   renderAllInk();
 }
 
@@ -3135,7 +3200,7 @@ function setShapeFix(v) {
 function applyToSel(fn) {
   if (S.tool !== 'select' || !S.sel.size || act) return false;
   pushUndo(snapshot());
-  for (const o of S.strokes) if (S.sel.has(o.id)) fn(o);
+  S.strokes = S.strokes.map(o => { if (!S.sel.has(o.id)) return o; const c = cloneStroke(o); fn(c); return c; });
   renderAllInk();
   return true;
 }
