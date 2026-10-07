@@ -217,6 +217,48 @@ body.lean #toolbar{display:none}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #busy{position:absolute;inset:0;z-index:80;display:none;place-items:center;background:rgba(0,0,0,.35);color:#fff;font-size:15px}
 #busy.show{display:grid}
+
+#insDlg{position:absolute;inset:0;z-index:77;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.4)}
+#insDlg.show{display:flex}
+#insDlg .ins-box{display:flex;flex-direction:column;gap:8px;width:min(880px, calc(100% - 24px));max-height:calc(100% - 24px);padding:12px;
+  background:var(--bar);color:var(--text);border:1px solid var(--bar-border);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+#insDlg.has-src .ins-box{height:min(760px, calc(100% - 24px))}
+#insDlg button{font:inherit;cursor:pointer}
+#insDlg .ins-head{display:flex;align-items:center;gap:8px}
+#insDlg .ins-head b{flex:0 0 auto}
+#insDlg .ins-src{flex:1;min-width:0;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#insDlg .ins-btn{height:38px;padding:0 12px;border:0;border-radius:8px;background:var(--btn);color:var(--text);font-size:13px;font-weight:600;white-space:nowrap}
+#insDlg .ins-btn.ok{background:var(--active);color:var(--active-text)}
+#insDlg .ins-btn:disabled{opacity:.4;cursor:default}
+#insDlg .ins-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#insDlg .ins-choose{display:flex;flex-direction:column;gap:10px;padding:8px 2px 4px}
+#insDlg .ins-choose p{margin:0;font-size:13px;color:var(--muted)}
+#insDlg .ins-main{display:none;flex:1 1 auto;min-height:0;flex-direction:column;gap:8px}
+#insDlg.has-src .ins-main{display:flex}
+#insDlg.has-src .ins-choose{display:none}
+#insDlg input{height:38px;padding:0 10px;border:1px solid var(--bar-border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;font-size:14px}
+#insDlg input.bad{border-color:#e03131}
+#insDlg #insRange{flex:1 1 180px;min-width:140px}
+#insDlg #insCur{width:64px;text-align:center}
+#insDlg .ins-note{font-size:12px;color:var(--muted)}
+#insDlg .ins-note.warn{color:#e03131}
+#insDlg .ins-grid{flex:1 1 auto;min-height:120px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;
+  padding:3px;align-content:start;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#insDlg .ins-cell{position:relative;border:2px solid var(--bar-border);border-radius:8px;background:var(--btn);padding:4px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:3px;-webkit-user-select:none;user-select:none}
+#insDlg .ins-cell .th{width:100%;height:150px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:4px;overflow:hidden}
+#insDlg .ins-cell .th canvas{display:block;width:100%;height:100%;object-fit:contain}
+#insDlg .ins-cell .no{font-size:12px;color:var(--muted)}
+#insDlg .ins-cell .ck{position:absolute;top:7px;right:7px;width:22px;height:22px;border-radius:50%;background:var(--active);color:var(--active-text);
+  display:none;place-items:center;font-size:13px;font-weight:700}
+#insDlg .ins-cell.on{border-color:var(--active);box-shadow:0 0 0 2px var(--active)}
+#insDlg .ins-cell.on .ck{display:grid}
+#insDlg .ins-cell.on .no{color:var(--active);font-weight:700}
+#insDlg .ins-seg{display:flex;background:var(--btn);border-radius:8px;padding:2px;gap:2px}
+#insDlg .ins-seg button{border:0;background:transparent;color:var(--text);border-radius:6px;height:34px;padding:0 12px;font-size:13px;font-weight:600}
+#insDlg .ins-seg button.on{background:var(--active);color:var(--active-text)}
+#insDlg .ins-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#insDlg .ins-foot .ins-sum{flex:1 1 200px;font-size:13px}
 @media (prefers-reduced-motion: reduce){#toast{transition:none}}
 </style>
 </head>
@@ -281,6 +323,9 @@ body.lean #toolbar{display:none}
     <div class="group">
       <button class="tool" id="addGgbBtn" aria-label="지오지브라 추가">
         <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M12 9v6M9 12h6"/></svg><span>지오지브라 추가</span>
+      </button>
+      <button class="tool" id="addPageBtn" aria-label="페이지 추가">
+        <svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4"/><path d="M12 11v6M9 14h6"/></svg><span>페이지 추가</span>
       </button>
     </div>
     <div class="sep"></div>
@@ -349,10 +394,44 @@ body.lean #toolbar{display:none}
   <canvas id="pkHue" width="180" height="16"></canvas>
   <div class="pk-foot"><span id="pkPrev"></span><button id="pkReset">기본색</button><button id="pkDone" class="ok">확인</button></div>
 </div>
+<div id="insDlg" role="dialog" aria-label="페이지 추가">
+  <div class="ins-box">
+    <div class="ins-head"><b>페이지 추가</b><span class="ins-src" id="insSrc"></span><button class="ins-btn" id="insX">닫기</button></div>
+    <div class="ins-choose">
+      <p>지금 문서에 끼워 넣을 쪽이 들어 있는 PDF를 고르세요.</p>
+      <div class="ins-row">
+        <button class="ins-btn ok" id="insDev">기기에서 고르기</button>
+        <button class="ins-btn" id="insDrv">드라이브에서 고르기</button>
+      </div>
+    </div>
+    <div class="ins-main">
+      <div class="ins-row">
+        <input id="insRange" type="text" inputmode="text" autocomplete="off" placeholder="넣을 쪽 (예: 5-12, 15)">
+        <button class="ins-btn" id="insAll">전체 선택</button>
+        <button class="ins-btn" id="insNone">선택 해제</button>
+        <button class="ins-btn" id="insOther">다른 PDF</button>
+      </div>
+      <div class="ins-note" id="insNote"></div>
+      <div class="ins-grid" id="insGrid"></div>
+      <div class="ins-row">
+        <div class="ins-seg" id="insWhere">
+          <button data-w="before">기준 쪽 앞</button><button data-w="after" class="on">기준 쪽 뒤</button><button data-w="end">맨 끝</button>
+        </div>
+        <span class="ins-note">기준 쪽</span><input id="insCur" type="number" inputmode="numeric" min="1" value="1">
+      </div>
+      <div class="ins-foot">
+        <span class="ins-sum" id="insSum"></span>
+        <button class="ins-btn" id="insCancel">취소</button>
+        <button class="ins-btn ok" id="insOk" disabled>추가</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="toast" role="status"></div>
 <div id="busy">처리 중…</div>
 <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
 <input type="file" id="fileInput" hidden>
+<input type="file" id="insInput" accept="application/pdf,.pdf" hidden>
 <script>
 (() => {
 'use strict';
@@ -375,7 +454,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v49';
+const BUILD = '무한 캔버스 v50';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -476,7 +555,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #insDlg, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -2793,12 +2872,329 @@ async function saveToDrive(folderId, fileId) {
   busy(false);
 }
 
+
+/* ===================== 페이지 추가 ===================== */
+// 다른 PDF에서 고른 쪽을 지금 문서의 원하는 위치에 끼워 넣는다. 기존 필기·지오지브라 창은 쪽 번호만 밀어 그대로 둔다.
+const insDlg = $('insDlg'), insInput = $('insInput'), insGrid = $('insGrid'), insRange = $('insRange'), insCurEl = $('insCur');
+const ins = { bytes: null, name: '', doc: null, n: 0, sel: new Set(), where: 'after', gen: 0, q: [], pumping: 0, cells: [], io: null, busy: false };
+
+function insReset() {
+  ins.gen++;
+  ins.q = []; ins.cells = [];
+  if (ins.io) { ins.io.disconnect(); ins.io = null; }
+  if (ins.doc) { try { ins.doc.destroy(); } catch (_) {} }
+  ins.doc = null; ins.bytes = null; ins.name = ''; ins.n = 0; ins.sel = new Set();
+  insGrid.innerHTML = '';
+  insRange.value = ''; insRange.classList.remove('bad');
+  $('insNote').textContent = ''; $('insNote').classList.remove('warn');
+  $('insSrc').textContent = '';
+  insDlg.classList.remove('has-src');
+}
+function insClose() { insDlg.classList.remove('show'); insReset(); }
+function openInsert() {
+  if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
+  if (!window.PDFLib || !window.pdfjsLib) { toast('기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
+  if (drivePanel.classList.contains('show')) closeDrive();
+  const vr = viewer.getBoundingClientRect();
+  let pi = nearestPage(vr.left + vr.width / 2, vr.top + vr.height / 2);
+  if (pi < 0) pi = 0;
+  insReset();
+  ins.where = 'after';
+  insCurEl.value = String(pi + 1);
+  insCurEl.max = String(S.pages.length);
+  insSyncWhere();
+  insDlg.classList.add('show');
+}
+function insHasBoardData(bytes) {
+  // 이 앱으로 저장한 PDF인지 가볍게 확인 (카탈로그에 PBoardData 이름이 있음)
+  const key = [0x2F, 0x50, 0x42, 0x6F, 0x61, 0x72, 0x64, 0x44, 0x61, 0x74, 0x61];   // /PBoardData
+  const n = bytes.length - key.length;
+  for (let i = 0; i < n; i++) {
+    if (bytes[i] !== 0x2F) continue;
+    let k = 1;
+    while (k < key.length && bytes[i + k] === key[k]) k++;
+    if (k === key.length) return true;
+  }
+  return false;
+}
+async function insLoadSource(bytes, name) {
+  busy('PDF 읽는 중…');
+  let doc = null;
+  try {
+    doc = await window.pdfjsLib.getDocument({
+      data: bytes.slice(),
+      cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true,
+      standardFontDataUrl: PDFJS_BASE + 'standard_fonts/'
+    }).promise;
+  } catch (err) {
+    busy(false);
+    toast('PDF를 읽지 못했습니다: ' + (err && err.message));
+    return;
+  }
+  busy(false);
+  insReset();
+  ins.bytes = bytes; ins.name = name; ins.doc = doc; ins.n = doc.numPages;
+  $('insSrc').textContent = name + ' · ' + ins.n + '쪽';
+  insDlg.classList.add('has-src');
+  if (insHasBoardData(bytes)) {
+    const nt = $('insNote');
+    nt.textContent = '이 PDF에는 저장된 필기가 있습니다. 필기와 지오지브라 창은 가져오지 않고 원본 쪽만 넣습니다.';
+    nt.classList.add('warn');
+  }
+  insBuildGrid();
+  insRefresh();
+}
+function insBuildGrid() {
+  const gen = ins.gen;
+  const frag = document.createDocumentFragment();
+  ins.cells = [];
+  for (let i = 1; i <= ins.n; i++) {
+    const c = document.createElement('div');
+    c.className = 'ins-cell';
+    c.dataset.n = String(i);
+    c.innerHTML = '<div class="th"></div><div class="no">' + i + '</div><div class="ck">✓</div>';
+    c._vis = false; c._done = false; c._queued = false;
+    ins.cells[i] = c;
+    frag.appendChild(c);
+  }
+  insGrid.appendChild(frag);
+  ins.io = new IntersectionObserver(entries => {
+    if (gen !== ins.gen) return;
+    for (const e of entries) {
+      const c = e.target;
+      c._vis = e.isIntersecting;
+      if (c._vis && !c._done && !c._queued) { c._queued = true; ins.q.push(c); }
+    }
+    insPump();
+  }, { root: insGrid, rootMargin: '400px 0px' });
+  for (let i = 1; i <= ins.n; i++) ins.io.observe(ins.cells[i]);
+}
+async function insPump() {
+  const gen = ins.gen;
+  if (ins.pumping === gen) return;
+  ins.pumping = gen;
+  while (ins.q.length && gen === ins.gen) {
+    const c = ins.q.shift();
+    c._queued = false;
+    if (!c._vis || c._done) continue;
+    try { await insThumb(c, gen); } catch (_) {}
+  }
+  if (ins.pumping === gen) ins.pumping = 0;
+}
+async function insThumb(cell, gen) {
+  const n = +cell.dataset.n;
+  const page = await ins.doc.getPage(n);
+  if (gen !== ins.gen) return;
+  const v1 = page.getViewport({ scale: 1 });
+  const sc = Math.min(150 / v1.width, 200 / v1.height) * DPR;
+  const vp = page.getViewport({ scale: sc });
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(vp.width)); cv.height = Math.max(1, Math.round(vp.height));
+  await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  if (gen !== ins.gen) return;
+  cell.querySelector('.th').appendChild(cv);
+  cell._done = true;
+  try { page.cleanup(); } catch (_) {}
+}
+// "5-12, 15" → 쪽 번호 집합
+function insParse(text) {
+  const out = new Set();
+  const t = String(text).replace(/[~∼–—]/g, '-').trim();
+  if (!t) return { ok: true, set: out };
+  for (const tok of t.split(/[,\s]+/)) {
+    if (!tok) continue;
+    const m = /^(\d+)(?:-(\d+))?$/.exec(tok);
+    if (!m) return { ok: false };
+    let a = +m[1], b = m[2] ? +m[2] : a;
+    if (a > b) { const x = a; a = b; b = x; }
+    if (a < 1 || b > ins.n) return { ok: false };
+    for (let i = a; i <= b; i++) out.add(i);
+  }
+  return { ok: true, set: out };
+}
+function insFormat(set) {
+  const a = [...set].sort((x, y) => x - y);
+  const parts = [];
+  for (let i = 0; i < a.length;) {
+    let j = i;
+    while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++;
+    parts.push(j > i ? a[i] + '-' + a[j] : String(a[i]));
+    i = j + 1;
+  }
+  return parts.join(', ');
+}
+function insAt() {
+  if (ins.where === 'end') return S.pages.length;
+  const cur = Math.min(S.pages.length, Math.max(1, parseInt(insCurEl.value, 10) || 1));
+  return ins.where === 'before' ? cur - 1 : cur;
+}
+function insSyncWhere() {
+  document.querySelectorAll('#insWhere button').forEach(b => b.classList.toggle('on', b.dataset.w === ins.where));
+  insCurEl.disabled = ins.where === 'end';
+}
+function insRefresh() {
+  for (let i = 1; i <= ins.n; i++) if (ins.cells[i]) ins.cells[i].classList.toggle('on', ins.sel.has(i));
+  const k = ins.sel.size, total = S.pages.length, at = insAt();
+  const where = ins.where === 'end' ? '맨 끝' : (at + (ins.where === 'before' ? 1 : 0)) + '쪽 ' + (ins.where === 'before' ? '앞' : '뒤');
+  $('insSum').textContent = k
+    ? '선택 ' + k + '쪽 → ' + where + '에 추가 (' + total + '쪽 → ' + (total + k) + '쪽)'
+    : '넣을 쪽을 고르세요 (현재 문서 ' + total + '쪽)';
+  $('insOk').disabled = !k || ins.busy;
+}
+async function insApply() {
+  if (ins.busy || !ins.sel.size || !ins.bytes) return;
+  if (!window.PDFLib) { toast('기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
+  const picks = [...ins.sel].sort((a, b) => a - b).map(n => n - 1);
+  const at = insAt(), k = picks.length;
+  const oldB64 = S.pdfB64, oldTotal = S.pages.length;
+  ins.busy = true; insRefresh();
+  busy('페이지 추가 중…');
+  try {
+    freezeActive();      // 켜져 있는 지오지브라 창은 그림으로 굳힌 뒤 옮긴다
+    const L = window.PDFLib;
+    const base = await L.PDFDocument.load(b64ToBytes(S.pdfB64), { updateMetadata: false });
+    let src = await L.PDFDocument.load(ins.bytes, { updateMetadata: false });
+    let stripped = false;
+    if (src.catalog.get(L.PDFName.of(PB_KEY))) {      // 이 앱에서 저장한 PDF면 찍혀 있던 필기를 걷어낸 원본 쪽만 쓴다
+      const r = await pbStrip(L, ins.bytes);
+      src = await L.PDFDocument.load(r.clean, { updateMetadata: false });
+      stripped = true;
+    }
+    const copied = await base.copyPages(src, picks);
+    copied.forEach((pg, i) => base.insertPage(at + i, pg));
+    const out = await base.save({ useObjectStreams: false });
+
+    // 여기부터 화면 상태를 바꾼다: 뒤쪽 필기·창의 쪽 번호를 k만큼 민다 (되돌리기 기록 포함)
+    insShift(at, k);
+    S.pdfB64 = abToB64(out);
+    renderWait.length = 0;
+    for (const p of S.pages) release(p);
+    try {
+      await loadPdfFromB64(S.pdfB64, false);
+    } catch (err) {
+      insShift(at + k, -k);
+      S.pdfB64 = oldB64;
+      renderWait.length = 0;
+      await loadPdfFromB64(oldB64, false);
+      throw err;
+    }
+    S.sel.clear();
+    renderAllInk();
+    markDirty();
+    const pg = S.pages[at];
+    if (pg) {
+      const vr = viewer.getBoundingClientRect();
+      const fits = pg.h * S.zoom <= vr.height;
+      gotoAnchor({ page: at, u: 0.5, v: fits ? 0.5 : Math.min(0.5, (vr.height / 2 / S.zoom) / pg.h) });
+    }
+    ins.busy = false;
+    insClose();
+    toast(k + '쪽을 추가했습니다 (' + oldTotal + '쪽 → ' + (oldTotal + k) + '쪽)' + (stripped ? ' — 가져온 PDF의 저장된 필기는 빼고 원본 쪽만 넣었습니다.' : ''));
+  } catch (err) {
+    ins.busy = false;
+    insRefresh();
+    toast('페이지를 추가하지 못했습니다: ' + (err && err.message ? err.message : err));
+  }
+  busy(false);
+}
+// 쪽 번호가 from 이상인 필기·창을 delta만큼 민다. 되돌리기·다시 실행 기록 속의 획도 함께.
+function insShift(from, delta) {
+  const seen = new Set();
+  const fix = o => { if (o && !seen.has(o)) { seen.add(o); if (o.page >= from) o.page += delta; } };
+  S.strokes.forEach(fix);
+  S.undo.forEach(a => a.forEach(fix));
+  S.redo.forEach(a => a.forEach(fix));
+  S.boxes.forEach(b => { if (b.page >= from) b.page += delta; });
+}
+async function driveFetchPdf(id, modified) {
+  const c = await dcGetFile(id);
+  if (c && modified && c.modified === modified) { dcTouch(id); return { bytes: new Uint8Array(c.bytes), name: c.name }; }
+  const r = await driveCall('read', { fileId: id });
+  const bytes = b64ToBytes(r.data);
+  dcPutFile({ id: r.id, name: r.name, folderId: r.folderId, modified: r.modified || modified || 0, bytes: bytes.slice().buffer });
+  return { bytes, name: r.name };
+}
+async function insFromDrive(id, modified) {
+  closeDrive();                      // 페이지 추가 창으로 돌아온다
+  busy('드라이브에서 받는 중…');
+  try {
+    const f = await driveFetchPdf(id, modified);
+    busy(false);
+    await insLoadSource(f.bytes, f.name);
+  } catch (err) {
+    busy(false);
+    toast('PDF를 받지 못했습니다: ' + err.message);
+  }
+}
+$('addPageBtn').addEventListener('click', openInsert);
+$('insX').addEventListener('click', insClose);
+$('insCancel').addEventListener('click', insClose);
+$('insDev').addEventListener('click', () => insInput.click());
+$('insDrv').addEventListener('click', () => {
+  insPick = true;
+  insDlg.classList.remove('show');
+  openDrive(driveCur ? driveCur.folder.id : null);
+});
+$('insOther').addEventListener('click', () => { insReset(); });
+insInput.addEventListener('change', async () => {
+  const f = insInput.files && insInput.files[0];
+  insInput.value = '';
+  if (!f) return;
+  busy('PDF 읽는 중…');
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    busy(false);
+    await insLoadSource(bytes, f.name);
+  } catch (err) {
+    busy(false);
+    toast('파일을 읽지 못했습니다: ' + err.message);
+  }
+});
+insGrid.addEventListener('click', e => {
+  const c = e.target.closest && e.target.closest('.ins-cell');
+  if (!c) return;
+  const n = +c.dataset.n;
+  if (ins.sel.has(n)) ins.sel.delete(n); else ins.sel.add(n);
+  insRange.value = insFormat(ins.sel);
+  insRange.classList.remove('bad');
+  insRefresh();
+});
+insRange.addEventListener('input', () => {
+  const r = insParse(insRange.value);
+  insRange.classList.toggle('bad', !r.ok);
+  if (!r.ok) return;
+  ins.sel = r.set;
+  insRefresh();
+});
+insRange.addEventListener('blur', () => {
+  const r = insParse(insRange.value);
+  if (r.ok) { insRange.value = insFormat(ins.sel); insRange.classList.remove('bad'); }
+});
+$('insAll').addEventListener('click', () => {
+  ins.sel = new Set(); for (let i = 1; i <= ins.n; i++) ins.sel.add(i);
+  insRange.value = ins.n ? '1-' + ins.n : ''; insRange.classList.remove('bad');
+  insRefresh();
+});
+$('insNone').addEventListener('click', () => { ins.sel = new Set(); insRange.value = ''; insRange.classList.remove('bad'); insRefresh(); });
+document.querySelectorAll('#insWhere button').forEach(b => b.addEventListener('click', () => {
+  ins.where = b.dataset.w; insSyncWhere(); insRefresh();
+}));
+insCurEl.addEventListener('input', insRefresh);
+$('insOk').addEventListener('click', insApply);
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && insDlg.classList.contains('show') && !ins.busy) insClose(); });
+
 const drivePanel = document.createElement('div');
 drivePanel.id = 'drivePanel';
 document.body.appendChild(drivePanel);
 let driveCur = null;   // 지금 보고 있는 폴더 목록
 let ggbPickBox = null;  // 지오지브라 창의 '파일'로 열었을 때 그 창
-function closeDrive() { drivePanel.classList.remove('show'); ggbPickBox = null; }
+let insPick = false;    // 페이지 추가에 쓸 PDF를 고르는 중
+function closeDrive() {
+  const wasIns = insPick;
+  drivePanel.classList.remove('show');
+  ggbPickBox = null; insPick = false;
+  if (wasIns) insDlg.classList.add('show');      // 고르지 않고 닫으면 페이지 추가 창으로 돌아간다
+}
 const isGgbFile = f => f.mime === 'application/vnd.geogebra.file' || /\.ggb$/i.test(f.name);
 function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
 function driveSettings() {
@@ -2869,18 +3265,18 @@ function renderDrive(stale, note) {
   const d = driveCur;
   const crumbs = d.path.map((p, i) => '<button class="dv-crumb" data-id="' + p.id + '">' + escapeHtml(p.name) + '</button>' +
     (i < d.path.length - 1 ? '<span>›</span>' : '')).join('');
-  const pick = !!ggbPickBox;
-  let html = (pick ? '<div class="dv-pick">지오지브라 창에 넣을 파일을 고르세요</div>' : '') +
+  const pick = !!ggbPickBox, insMode = insPick;
+  let html = (pick ? '<div class="dv-pick">지오지브라 창에 넣을 파일을 고르세요</div>' : insMode ? '<div class="dv-pick">페이지를 끼워 넣을 PDF를 고르세요</div>' : '') +
     '<div class="dv-head"><div class="dv-path">' + crumbs + '</div><button class="dv-x">닫기</button></div>' +
     '<div class="dv-tools">' +
-    (pick ? '<button class="dv-btn" id="dvLocal">기기에서 고르기</button>' : '') +
+    ((pick || insMode) ? '<button class="dv-btn" id="dvLocal">기기에서 고르기</button>' : '') +
     '<button class="dv-btn" id="dvNew">새 폴더</button>' +
 
     '<button class="dv-btn" id="dvConf">연결 설정</button>' +
     (stale ? '<span class="dv-note">새 목록 확인 중…</span>' : (note ? '<span class="dv-note">' + escapeHtml(note) + '</span>' : '')) +
     '</div><div class="dv-list">';
   for (const f of d.folders) html += '<button class="dv-item dv-folder" data-id="' + f.id + '">📁 ' + escapeHtml(f.name) + '</button>';
-  const ggbs = d.files.filter(isGgbFile);
+  const ggbs = insMode ? [] : d.files.filter(isGgbFile);
   const pdfs = pick ? [] : d.files.filter(f => f.mime === 'application/pdf');
   for (const f of ggbs) {
     html += '<button class="dv-item dv-ggb" data-id="' + f.id + '" data-mod="' + f.modified + '">📐 ' + escapeHtml(f.name) +
@@ -2895,11 +3291,11 @@ function renderDrive(stale, note) {
   drivePanel.innerHTML = html;
   drivePanel.querySelector('.dv-x').addEventListener('click', closeDrive);
   drivePanel.querySelectorAll('.dv-crumb, .dv-folder').forEach(b => b.addEventListener('click', () => openDrive(b.dataset.id)));
-  drivePanel.querySelectorAll('.dv-file').forEach(b => b.addEventListener('click', () => openDriveFile(b.dataset.id, +b.dataset.mod)));
+  drivePanel.querySelectorAll('.dv-file').forEach(b => b.addEventListener('click', () => (insMode ? insFromDrive(b.dataset.id, +b.dataset.mod) : openDriveFile(b.dataset.id, +b.dataset.mod))));
   drivePanel.querySelector('#dvConf').addEventListener('click', driveSettings);
   drivePanel.querySelectorAll('.dv-ggb').forEach(b => b.addEventListener('click', () => openDriveGgb(b.dataset.id, +b.dataset.mod)));
   const local = drivePanel.querySelector('#dvLocal');
-  if (local) local.addEventListener('click', () => { ggbFileTarget = ggbPickBox; closeDrive(); ggbFileInput.click(); });
+  if (local) local.addEventListener('click', () => { if (insMode) { closeDrive(); insInput.click(); return; } ggbFileTarget = ggbPickBox; closeDrive(); ggbFileInput.click(); });
   drivePanel.querySelector('#dvNew').addEventListener('click', async () => {
     const name = window.prompt('새 폴더 이름');
     if (!name) return;
