@@ -375,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v45';
+const BUILD = '무한 캔버스 v46';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2689,12 +2689,32 @@ async function dcTouch(id) {
     if (it) { it.used = Date.now(); await idbSet('dc:index', idx); }
   } catch (_) {}
 }
+// 큰 파일은 약 1MB씩 나눠 보낸다 (학교 네트워크가 큰 업로드를 막는 경우 대비)
+const CHUNK = 768 * 1024;
+async function driveUpload(bytes, info) {
+  const mb = (bytes.length / 1048576).toFixed(1);
+  if (bytes.length <= CHUNK) {
+    try { return await driveCall('save', Object.assign({ data: abToB64(bytes) }, info)); }
+    catch (err) { throw new Error(err.message + ' (' + mb + 'MB)'); }
+  }
+  const uploadId = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const count = Math.ceil(bytes.length / CHUNK);
+  for (let i = 0; i < count; i++) {
+    busy('드라이브에 저장 중… ' + (i + 1) + '/' + count);
+    const part = bytes.subarray(i * CHUNK, Math.min(bytes.length, (i + 1) * CHUNK));
+    try { await driveCall('upPart', { uploadId, index: i, data: abToB64(part) }); }
+    catch (err) { throw new Error(err.message + ' (' + (i + 1) + '/' + count + '번째 조각, 전체 ' + mb + 'MB)'); }
+  }
+  busy('드라이브에서 합치는 중…');
+  try { return await driveCall('upDone', Object.assign({ uploadId, count }, info)); }
+  catch (err) { throw new Error(err.message + ' (합치기 단계, 전체 ' + mb + 'MB)'); }
+}
 async function saveToDrive(folderId, fileId) {
   busy('드라이브에 저장 중…');
   try {
     const bytes = await buildBoardPdf(false);
     const name = (S.driveFile && fileId) ? S.driveFile.name : saveName();
-    const r = await driveCall('save', { folderId, fileId: fileId || null, name, mime: 'application/pdf', data: abToB64(bytes) });
+    const r = await driveUpload(bytes, { folderId, fileId: fileId || null, name, mime: 'application/pdf' });
     S.driveFile = { id: r.id, folderId: r.folderId, name: r.name, modified: r.modified || 0 };
     // 올린 내용을 그대로 캐시에 (다시 열 때 내려받지 않도록)
     dcPutFile({ id: r.id, name: r.name, folderId: r.folderId, modified: r.modified || 0, bytes: bytes.slice().buffer });
