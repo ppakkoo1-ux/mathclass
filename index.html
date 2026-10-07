@@ -375,7 +375,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v46';
+const BUILD = '무한 캔버스 v47';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2576,7 +2576,6 @@ function downloadBytes(bytes, name, type) {
 async function saveFile() {
   if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
   if (!window.PDFLib) { toast('저장 기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
-  if (S.driveFile) { await saveToDrive(S.driveFile.folderId, S.driveFile.id); return; }
   try {
     // 크롬·엣지: 처음 한 번 위치를 고르면 이후엔 같은 파일에 바로 저장
     if (window.showSaveFilePicker && !S.fileHandle) {
@@ -2811,7 +2810,7 @@ function renderDrive(stale, note) {
     '<div class="dv-tools">' +
     (pick ? '<button class="dv-btn" id="dvLocal">기기에서 고르기</button>' : '') +
     '<button class="dv-btn" id="dvNew">새 폴더</button>' +
-    (S.doc && !pick ? '<button class="dv-btn ok" id="dvHere">여기에 저장</button>' : '') +
+
     '<button class="dv-btn" id="dvConf">연결 설정</button>' +
     (stale ? '<span class="dv-note">새 목록 확인 중…</span>' : (note ? '<span class="dv-note">' + escapeHtml(note) + '</span>' : '')) +
     '</div><div class="dv-list">';
