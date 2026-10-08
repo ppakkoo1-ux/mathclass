@@ -464,7 +464,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v51';
+const BUILD = '무한 캔버스 v52';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -4133,10 +4133,14 @@ if (/[?&]perf=1/.test(location.search)) {
     b.addEventListener('click', () => { b.classList.toggle('on', document.body.classList.toggle(cls)); });
     bar.appendChild(b);
   }
+  const rb = document.createElement('button'); rb.textContent = '기록 초기화';
+  rb.addEventListener('click', () => { peak.fps = Infinity; peak.gap = 0; peak.ltN = 0; peak.ltMs = 0; peak.fn = {}; peak.secs = 0; });
+  bar.appendChild(rb);
   const xb = document.createElement('button'); xb.textContent = '진단 접기';
   xb.addEventListener('click', () => { const hid = txt.style.display === 'none'; txt.style.display = hid ? '' : 'none'; xb.textContent = hid ? '진단 접기' : '진단 펴기'; });
   bar.appendChild(xb);
 
+  const peak = { fps: Infinity, gap: 0, ltN: 0, ltMs: 0, fn: {}, secs: 0 };   // 이동이 끝난 뒤에도 가장 나빴던 값을 남겨 둔다
   let frames = 0, maxGap = 0, lastT = performance.now(), ltN = 0, ltMs = 0;
   (function tick(t) { frames++; maxGap = Math.max(maxGap, t - lastT); lastT = t; requestAnimationFrame(tick); })(performance.now());
   try {
@@ -4157,14 +4161,24 @@ if (/[?&]perf=1/.test(location.search)) {
     const live = activeBox ? 1 : 0;
     let imgs = 0, imgKB = 0;
     for (const b of S.boxes) if (b.png) { imgs++; imgKB += b.png.length / 1024; }
-    const names = Object.keys(acc).sort((x, y) => acc[y][0] - acc[x][0]);
-    let lines = [BUILD + ' · 진단'];
-    lines.push('프레임 ' + (frames / sec).toFixed(0) + '/초 · 최장 간격 ' + maxGap.toFixed(0) + 'ms · 긴 작업(50ms+) ' + ltN + '회 ' + ltMs.toFixed(0) + 'ms');
+    // 1초마다 가장 나빴던 값을 기록 (이동이 끝나도 남음)
+    const fps = frames / sec;
+    if (fps < peak.fps) peak.fps = fps;
+    if (maxGap > peak.gap) peak.gap = maxGap;
+    peak.ltN += ltN; peak.ltMs += ltMs; peak.secs++;
+    for (const n of Object.keys(acc)) {
+      const v = acc[n][0] / sec, c = acc[n][1] / sec, o = peak.fn[n];
+      if (!o || v > o[0]) peak.fn[n] = [v, c];
+    }
+    const names = Object.keys(peak.fn).sort((x, y) => peak.fn[y][0] - peak.fn[x][0]);
+    let lines = [BUILD + ' · 진단 (이동한 뒤 멈추고 이 화면을 찍어 주세요)'];
+    lines.push('지금 프레임 ' + fps.toFixed(0) + '/초');
+    lines.push('가장 나빴던 때: 프레임 ' + (peak.fps === Infinity ? '-' : peak.fps.toFixed(0)) + '/초 · 최장 간격 ' + peak.gap.toFixed(0) + 'ms · 긴 작업(50ms+) 누적 ' + peak.ltN + '회 ' + peak.ltMs.toFixed(0) + 'ms');
     lines.push('줌 ' + Math.round(S.zoom * 100) + '% · 쪽 ' + S.pages.length + ' · 창 ' + S.boxes.length + '(켜짐 ' + live + ', 그림 ' + imgs + ' / ' + imgKB.toFixed(0) + 'KB) · 필기 ' + S.strokes.length + '획');
     lines.push('캔버스 ' + nCanv + '장 · PDF ' + mp(pdfMP) + 'MP · 필기 ' + mp(inkMP) + 'MP · 창위 ' + mp(overMP) + 'MP(' + overN + '쪽)');
     lines.push('화면 ' + innerWidth + 'x' + innerHeight + ' · 배율 ' + (window.devicePixelRatio || 1) + (performance.memory ? ' · JS힙 ' + (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + 'MB' : ''));
-    lines.push('── 1초당 함수 시간 (ms ×횟수) ──');
-    for (const n of names.slice(0, 6)) lines.push(n + ' ' + (acc[n][0] / sec).toFixed(0) + ' ×' + (acc[n][1] / sec).toFixed(0));
+    lines.push('── 가장 오래 걸린 1초당 함수 시간 (ms ×횟수) ──');
+    for (const n of names.slice(0, 6)) lines.push(n + ' ' + peak.fn[n][0].toFixed(0) + ' ×' + peak.fn[n][1].toFixed(0));
     txt.textContent = lines.join('\n');
     for (const k of Object.keys(acc)) acc[k] = [0, 0];
     frames = 0; maxGap = 0; ltN = 0; ltMs = 0;
