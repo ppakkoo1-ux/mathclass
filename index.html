@@ -218,6 +218,16 @@ body.lean #toolbar{display:none}
 #busy{position:absolute;inset:0;z-index:80;display:none;place-items:center;background:rgba(0,0,0,.35);color:#fff;font-size:15px}
 #busy.show{display:grid}
 
+#perfHud{position:fixed;left:6px;bottom:6px;z-index:95;max-width:min(420px,calc(100% - 12px));padding:8px 10px;border-radius:10px;
+  background:rgba(0,0,0,.82);color:#e8ffe8;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;-webkit-user-select:none;user-select:none}
+#perfHud .pb{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+#perfHud button{height:30px;padding:0 9px;border:0;border-radius:6px;background:#3a3f4b;color:#fff;font-size:11px;cursor:pointer}
+#perfHud button.on{background:#e03131}
+body.ph-box .ggbbox{display:none!important}
+body.ph-inku .inku{display:none!important}
+body.ph-inkc .inkc{display:none!important}
+body.ph-pdf .pdfc{display:none!important}
+
 #insDlg{position:absolute;inset:0;z-index:77;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.4)}
 #insDlg.show{display:flex}
 #insDlg .ins-box{display:flex;flex-direction:column;gap:8px;width:min(880px, calc(100% - 24px));max-height:calc(100% - 24px);padding:12px;
@@ -454,7 +464,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v50';
+const BUILD = '무한 캔버스 v51';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -555,7 +565,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #insDlg, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #insDlg, #perfHud, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -4092,6 +4102,74 @@ setColor(S.colorOf.pen);
 setWidth(S.widthOf.pen);
 document.body.classList.add('pageborder');
 $('borderBtn').classList.add('active');
+
+/* ===================== 진단 표시 (주소 끝에 ?perf=1 을 붙였을 때만 켜짐, 평소엔 아무 영향 없음) ===================== */
+if (/[?&]perf=1/.test(location.search)) {
+  const acc = {};
+  const wrapFn = (name, fn) => function () {
+    const t = performance.now();
+    try { return fn.apply(this, arguments); }
+    finally { const a = acc[name] || (acc[name] = [0, 0]); a[0] += performance.now() - t; a[1]++; }
+  };
+  renderInk = wrapFn('renderInk', renderInk);
+  renderInkRect = wrapFn('renderInkRect', renderInkRect);
+  sizeInk = wrapFn('sizeInk', sizeInk);
+  renderPdf = wrapFn('renderPdf(시작부)', renderPdf);
+  updateVisible = wrapFn('updateVisible', updateVisible);
+  layout = wrapFn('layout', layout);
+  syncBoxView = wrapFn('syncBoxView', syncBoxView);
+  placeSelBar = wrapFn('placeSelBar', placeSelBar);
+
+  const hud = document.createElement('div');
+  hud.id = 'perfHud';
+  const txt = document.createElement('div');
+  const bar = document.createElement('div'); bar.className = 'pb';
+  hud.append(txt, bar);
+  document.body.appendChild(hud);
+  const toggles = [['창 숨김', 'ph-box'], ['필기층 숨김', 'ph-inku'], ['창위층 숨김', 'ph-inkc'], ['PDF층 숨김', 'ph-pdf']];
+  for (const [label, cls] of toggles) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.addEventListener('click', () => { b.classList.toggle('on', document.body.classList.toggle(cls)); });
+    bar.appendChild(b);
+  }
+  const xb = document.createElement('button'); xb.textContent = '진단 접기';
+  xb.addEventListener('click', () => { const hid = txt.style.display === 'none'; txt.style.display = hid ? '' : 'none'; xb.textContent = hid ? '진단 접기' : '진단 펴기'; });
+  bar.appendChild(xb);
+
+  let frames = 0, maxGap = 0, lastT = performance.now(), ltN = 0, ltMs = 0;
+  (function tick(t) { frames++; maxGap = Math.max(maxGap, t - lastT); lastT = t; requestAnimationFrame(tick); })(performance.now());
+  try {
+    new PerformanceObserver(list => { for (const e of list.getEntries()) { ltN++; ltMs += e.duration; } }).observe({ entryTypes: ['longtask'] });
+  } catch (_) {}
+  let prev = performance.now();
+  setInterval(() => {
+    const now = performance.now(), sec = (now - prev) / 1000; prev = now;
+    let pdfMP = 0, inkMP = 0, overMP = 0, overN = 0, nCanv = 0;
+    for (const p of S.pages) {
+      const a = p.front.width * p.front.height + p.back.width * p.back.height;
+      const b = p.inku.width * p.inku.height, c = p.inkc.width * p.inkc.height;
+      pdfMP += a; inkMP += b; overMP += c;
+      if (p.inkc.width > 1) overN++;
+      for (const cv of [p.front, p.back, p.inku, p.inkc]) if (cv.width > 1) nCanv++;
+    }
+    const mp = v => (v / 1e6).toFixed(1);
+    const live = activeBox ? 1 : 0;
+    let imgs = 0, imgKB = 0;
+    for (const b of S.boxes) if (b.png) { imgs++; imgKB += b.png.length / 1024; }
+    const names = Object.keys(acc).sort((x, y) => acc[y][0] - acc[x][0]);
+    let lines = [BUILD + ' · 진단'];
+    lines.push('프레임 ' + (frames / sec).toFixed(0) + '/초 · 최장 간격 ' + maxGap.toFixed(0) + 'ms · 긴 작업(50ms+) ' + ltN + '회 ' + ltMs.toFixed(0) + 'ms');
+    lines.push('줌 ' + Math.round(S.zoom * 100) + '% · 쪽 ' + S.pages.length + ' · 창 ' + S.boxes.length + '(켜짐 ' + live + ', 그림 ' + imgs + ' / ' + imgKB.toFixed(0) + 'KB) · 필기 ' + S.strokes.length + '획');
+    lines.push('캔버스 ' + nCanv + '장 · PDF ' + mp(pdfMP) + 'MP · 필기 ' + mp(inkMP) + 'MP · 창위 ' + mp(overMP) + 'MP(' + overN + '쪽)');
+    lines.push('화면 ' + innerWidth + 'x' + innerHeight + ' · 배율 ' + (window.devicePixelRatio || 1) + (performance.memory ? ' · JS힙 ' + (performance.memory.usedJSHeapSize / 1048576).toFixed(0) + 'MB' : ''));
+    lines.push('── 1초당 함수 시간 (ms ×횟수) ──');
+    for (const n of names.slice(0, 6)) lines.push(n + ' ' + (acc[n][0] / sec).toFixed(0) + ' ×' + (acc[n][1] / sec).toFixed(0));
+    txt.textContent = lines.join('\n');
+    for (const k of Object.keys(acc)) acc[k] = [0, 0];
+    frames = 0; maxGap = 0; ltN = 0; ltMs = 0;
+  }, 1000);
+}
 placeQuick();
 updateBtns();
 $('ver').textContent = BUILD;
