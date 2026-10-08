@@ -464,7 +464,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v52';
+const BUILD = '무한 캔버스 v53';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -676,6 +676,12 @@ function setStyle(ctx, color) {
   ctx.strokeStyle = color; ctx.fillStyle = color;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 }
+// 모든 점의 필압이 같은가 (같으면 굵기가 일정하다)
+function flatPressure(p) {
+  const q0 = p[0][2];
+  for (let i = 1; i < p.length; i++) if (Math.abs(p[i][2] - q0) > 1e-4) return false;
+  return true;
+}
 function drawPts(ctx, p, color, o, ex) {
   const n = p.length;
   if (!n) return;
@@ -687,7 +693,8 @@ function drawPts(ctx, p, color, o, ex) {
     ctx.beginPath();
     ctx.arc(p[0][0], p[0][1], (wAt(o, p, 0) + ex) / 2, 0, Math.PI * 2);
     ctx.fill();
-  } else if (isSolid(k)) {
+  } else if (isSolid(k) || (k === 'pen' && flatPressure(p))) {
+    // 굵기가 일정한 획(볼펜·형광펜, 그리고 필압이 한결같은 펜)은 한 번에 그린다 — 마디별로 긋는 것과 모양은 같고 훨씬 빠르다
     ctx.lineWidth = wAt(o, p, 0) + ex;
     smoothPath(ctx, p);
     ctx.stroke();
