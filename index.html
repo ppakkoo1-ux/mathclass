@@ -477,7 +477,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v55';
+const BUILD = '무한 캔버스 v56';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2356,7 +2356,7 @@ function dragBox(b, handle, kind, dir) {
         try {
           const q = JSON.parse(activeBox.api.getViewProperties(1));
           const w = +q.width, h = +q.height, ix = +q.invXscale, iy = +q.invYscale, xMin = +q.xMin, yMin = +q.yMin;
-          if (w > 0 && h > 0 && ix > 0 && iy > 0 && isFinite(xMin) && isFinite(yMin)) d.gv = { w, h, ix, iy, xMin, yMax: yMin + h * iy };
+          if (w > 0 && h > 0 && ix > 0 && iy > 0 && isFinite(xMin) && isFinite(yMin)) d.gv = { w, h, ix, iy, xMin, yMax: yMin + h * iy, pins: screenPins(activeBox.api) };
         } catch (_) {}
       }
     }
@@ -2409,7 +2409,47 @@ function dragBox(b, handle, kind, dir) {
     const xMin = g.xMin + (b.x - st.x) * z * g.ix;                      // 왼쪽 가장자리가 움직인 만큼
     const yMax = g.yMax - (b.y - st.y) * z * g.iy;                      // 위쪽 가장자리가 움직인 만큼
     try { activeBox.api.setCoordSystem(xMin, xMin + w1 * g.ix, yMax - h1 * g.iy, yMax); } catch (_) {}
+    // 체크박스·버튼·입력칸은 좌표가 아니라 '그래픽 화면 왼쪽 위에서 몇 화소'로 놓인다 → 가장자리가 움직인 만큼 반대로 옮겨 종이 위 제자리에 둔다
+    const offX = Math.round((b.x - st.x) * z), offY = Math.round((b.y - st.y) * z);
+    for (const pin of (g.pins || [])) setScreenPos(activeBox.api, pin, pin.x - offX, pin.y - offY);
   }
+}
+// 화면 화소로 위치가 정해지는 개체(체크박스·버튼·입력칸)와 그 위치
+const PIN_TYPES = { boolean: 1, button: 1, textfield: 1 };
+function screenPins(api) {
+  const out = [];
+  if (!api || typeof api.getAllObjectNames !== 'function' || typeof api.getXML !== 'function') return out;
+  try {
+    for (const n of api.getAllObjectNames()) {
+      let t = '';
+      try { t = String(api.getObjectType(n)).toLowerCase(); } catch (_) {}
+      if (!PIN_TYPES[t]) continue;
+      const m = /<labelOffset\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"/.exec(String(api.getXML(n) || ''));
+      if (m) out.push({ n, type: t, x: +m[1], y: +m[2] });
+    }
+  } catch (_) {}
+  return out;
+}
+function readPin(api, pin) {
+  try {
+    const m = /<labelOffset\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"/.exec(String(api.getXML(pin.n) || ''));
+    return m ? [+m[1], +m[2]] : null;
+  } catch (_) { return null; }
+}
+function setScreenPos(api, pin, x, y) {
+  if (pin.cx === x && pin.cy === y) return;
+  // 먼저 setCoords로 옮겨 보고, 처음 한 번은 실제로 옮겨졌는지 확인해 안 되면 XML로 옮긴다
+  if (pin.way !== 'xml') {
+    try { api.setCoords(pin.n, x, y); } catch (_) {}
+    if (!pin.way) {
+      const r = readPin(api, pin);
+      pin.way = (r && Math.abs(r[0] - x) < 1.5 && Math.abs(r[1] - y) < 1.5) ? 'coords' : 'xml';
+    }
+  }
+  if (pin.way === 'xml' && typeof api.evalXML === 'function') {
+    try { api.evalXML('<element type="' + pin.type + '" label="' + pin.n + '"><labelOffset x="' + x + '" y="' + y + '"/></element>'); } catch (_) {}
+  }
+  pin.cx = x; pin.cy = y;
 }
 function freezeActive() {
   if (!activeBox) return;
