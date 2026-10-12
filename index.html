@@ -96,28 +96,41 @@ body.pageborder .page{outline:1px solid rgba(0,0,0,.12);outline-offset:0}
 .ggbbox.ui-show,.ggbbox.live.manip,body.mode-ggb .ggbbox{
   border-color:var(--active);box-shadow:0 3px 12px rgba(0,0,0,.14)}
 .bxhead,.bxresize{opacity:0;pointer-events:none;transition:opacity .15s}
-.ggbbox.ui-show .bxhead,.ggbbox.ui-show .bxresize,
+.ggbbox.ui-show .bxhead,.ggbbox.ui-show .bxresize,.ggbbox.sizing .bxresize,
 body.mode-ggb .bxhead,body.mode-ggb .bxresize{opacity:1;pointer-events:auto}
-.bxhead{position:absolute;left:0;right:0;top:0;height:34px;z-index:2;display:flex;align-items:center;gap:4px;padding:0 4px;
-  background:rgba(43,89,195,.92);color:#fff;font-size:12px;touch-action:none;cursor:move;-webkit-user-select:none;user-select:none}
+.bxhead{position:absolute;left:16px;right:16px;top:14px;height:34px;z-index:2;display:flex;align-items:center;gap:4px;padding:0 4px;border-radius:9px;
+  background:rgba(43,89,195,.9);color:#fff;font-size:12px;touch-action:none;cursor:move;-webkit-user-select:none;user-select:none;
+  box-shadow:0 2px 8px rgba(0,0,0,.22)}
 .bxhead .t{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:4px}
 .bxhead button{height:26px;padding:0 8px;border:0;border-radius:6px;background:rgba(255,255,255,.22);color:#fff;font-size:12px;cursor:pointer}
 .bxbody{position:absolute;inset:0;background:#fff}
 .bxbody img{display:block;object-fit:fill}
 .bxbody .host{width:100%;height:100%}
 .bxguard{position:absolute;inset:0;z-index:1;pointer-events:none}
-.bxtoggle{position:absolute;right:4px;bottom:4px;z-index:4;height:30px;min-width:30px;padding:0 9px;
+.bxtoggle{position:absolute;right:34px;bottom:22px;z-index:4;height:30px;min-width:30px;padding:0 9px;
   display:flex;align-items:center;gap:4px;border-radius:15px;border:1px solid rgba(43,89,195,.45);
   background:rgba(255,255,255,.88);color:#2b59c3;font-size:12px;font-weight:600;cursor:pointer;
   touch-action:manipulation;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .bxtoggle svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ggbbox.live.manip .bxtoggle{background:#2b59c3;color:#fff;border-color:#2b59c3}
-.ggbbox.live.manip .bxhead{opacity:1;pointer-events:auto}
+.ggbbox.live.manip .bxhead,.ggbbox.live.manip .bxresize{opacity:1;pointer-events:auto}
 .ggbbox.live .bxguard{pointer-events:auto}
 .ggbbox.live.manip .bxguard,body.mode-ggb .ggbbox.live .bxguard{pointer-events:none}
 .ggbbox.live.manip.ui-show{box-shadow:0 0 0 2px var(--active),0 3px 12px rgba(0,0,0,.2)}
-.bxresize{position:absolute;right:0;top:34px;width:22px;height:22px;cursor:nwse-resize;touch-action:none;
-  background:linear-gradient(135deg, transparent 50%, var(--active) 50%);border-radius:0 0 0 4px}
+/* 크기 손잡이: 네 변과 네 모서리. 창을 조작할 때만 보인다 */
+.bxresize{position:absolute;z-index:5;touch-action:none}
+.bxresize::after{content:"";position:absolute;background:var(--active);border-radius:4px;opacity:.9;box-shadow:0 0 0 1.5px rgba(255,255,255,.9)}
+.bxresize.rs-n,.bxresize.rs-s{left:30px;right:30px;height:16px;cursor:ns-resize}
+.bxresize.rs-e,.bxresize.rs-w{top:30px;bottom:30px;width:16px;cursor:ew-resize}
+.bxresize.rs-n{top:0}.bxresize.rs-s{bottom:0}.bxresize.rs-e{right:0}.bxresize.rs-w{left:0}
+.bxresize.rs-n::after,.bxresize.rs-s::after{left:50%;top:5px;width:44px;height:6px;transform:translateX(-50%)}
+.bxresize.rs-e::after,.bxresize.rs-w::after{top:50%;left:5px;width:6px;height:44px;transform:translateY(-50%)}
+.bxresize.rs-nw,.bxresize.rs-ne,.bxresize.rs-sw,.bxresize.rs-se{width:30px;height:30px}
+.bxresize.rs-nw{left:0;top:0;cursor:nwse-resize}.bxresize.rs-se{right:0;bottom:0;cursor:nwse-resize}
+.bxresize.rs-ne{right:0;top:0;cursor:nesw-resize}.bxresize.rs-sw{left:0;bottom:0;cursor:nesw-resize}
+.bxresize.rs-nw::after,.bxresize.rs-ne::after,.bxresize.rs-sw::after,.bxresize.rs-se::after{width:14px;height:14px;border-radius:5px}
+.bxresize.rs-nw::after{left:5px;top:5px}.bxresize.rs-ne::after{right:5px;top:5px}
+.bxresize.rs-sw::after{left:5px;bottom:5px}.bxresize.rs-se::after{right:5px;bottom:5px}
 
 #empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);
   font-size:15px;line-height:1.7;padding:24px;pointer-events:none}
@@ -464,7 +477,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v53';
+const BUILD = '무한 캔버스 v54';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2064,7 +2077,7 @@ function gotoAnchor(a) {
   camChanged();
 }
 function restoreView(anchor, zoom) {
-  if (zoom) { S.zoom = Math.min(6, Math.max(0.3, zoom)); layout(); }
+  if (zoom) { S.zoom = Math.min(8, Math.max(0.15, zoom)); layout(); }   // setZoom·핀치와 같은 범위
   requestAnimationFrame(() => {
     gotoAnchor(anchor);
     requestAnimationFrame(() => gotoAnchor(anchor));
@@ -2289,7 +2302,8 @@ function buildBoxEl(b) {
   el.innerHTML =
     '<div class="bxhead"><span class="t">지오지브라</span><button class="bfit">맞춤</button><button class="bfile">파일</button><button class="bdel">삭제</button></div>' +
     '<button class="bxtoggle" aria-label="조작과 필기 전환"></button>' +
-    '<div class="bxbody"></div><div class="bxguard"></div><div class="bxresize"></div>';
+    '<div class="bxbody"></div><div class="bxguard"></div>' +
+    ['n', 'e', 's', 'w', 'nw', 'ne', 'sw', 'se'].map(d => '<div class="bxresize rs-' + d + '" data-dir="' + d + '"></div>').join('');
   b.el = el;
   b.body = el.querySelector('.bxbody');
   (S.pages[b.page] || S.pages[0]).boxesEl.appendChild(el);
@@ -2321,11 +2335,11 @@ function buildBoxEl(b) {
     activateBox(b);
   });
   dragBox(b, el.querySelector('.bxhead'), 'move');
-  dragBox(b, el.querySelector('.bxresize'), 'resize');
+  el.querySelectorAll('.bxresize').forEach(h => dragBox(b, h, 'resize', h.dataset.dir));
   renderBoxBody(b);
   placeBox(b);
 }
-function dragBox(b, handle, kind) {
+function dragBox(b, handle, kind, dir) {
   let d = null;
   handle.addEventListener('pointerdown', e => {
     if (e.target.tagName === 'BUTTON') return;
@@ -2333,12 +2347,19 @@ function dragBox(b, handle, kind) {
     e.stopPropagation();
     try { handle.setPointerCapture(e.pointerId); } catch (_) {}
     d = { pid: e.pointerId, sx: e.clientX, sy: e.clientY, x: b.x, y: b.y, w: b.w, h: b.h };
+    if (kind === 'resize') { b.el.classList.add('sizing'); clearTimeout(b.uiTimer); }
   });
   handle.addEventListener('pointermove', e => {
     if (!d || e.pointerId !== d.pid) return;
     const dx = (e.clientX - d.sx) / S.zoom, dy = (e.clientY - d.sy) / S.zoom;
     if (kind === 'move') { b.x = d.x + dx; b.y = d.y + dy; }
-    else { b.w = Math.max(160, d.w + dx); b.h = Math.max(140, d.h + dy); }
+    else {
+      const MINW = 160, MINH = 140;
+      if (dir.indexOf('e') >= 0) b.w = Math.max(MINW, d.w + dx);
+      if (dir.indexOf('w') >= 0) { b.w = Math.max(MINW, d.w - dx); b.x = d.x + d.w - b.w; }   // 오른쪽 가장자리는 그대로
+      if (dir.indexOf('s') >= 0) b.h = Math.max(MINH, d.h + dy);
+      if (dir.indexOf('n') >= 0) { b.h = Math.max(MINH, d.h - dy); b.y = d.y + d.h - b.h; }   // 아래쪽 가장자리는 그대로
+    }
     placeBox(b);
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
       const now = performance.now();
@@ -2354,6 +2375,7 @@ function dragBox(b, handle, kind) {
   ['pointerup', 'pointercancel'].forEach(t => handle.addEventListener(t, e => {
     if (!d || e.pointerId !== d.pid) return;
     d = null;
+    if (kind === 'resize') b.el.classList.remove('sizing');
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
       activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
       setTimeout(() => syncBoxView(true), 120);
