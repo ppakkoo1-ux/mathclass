@@ -477,7 +477,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v54';
+const BUILD = '무한 캔버스 v55';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2347,7 +2347,19 @@ function dragBox(b, handle, kind, dir) {
     e.stopPropagation();
     try { handle.setPointerCapture(e.pointerId); } catch (_) {}
     d = { pid: e.pointerId, sx: e.clientX, sy: e.clientY, x: b.x, y: b.y, w: b.w, h: b.h };
-    if (kind === 'resize') { b.el.classList.add('sizing'); clearTimeout(b.uiTimer); }
+    if (kind === 'resize') {
+      b.el.classList.add('sizing'); clearTimeout(b.uiTimer);
+      // 왼쪽·위쪽 손잡이: 지오지브라는 크기가 바뀌면 왼쪽 위 좌표를 그대로 두므로,
+      // 그대로 두면 그림이 창과 함께 끌려가 오른쪽(아래쪽)이 잘려 보인다. 시작 시점의 좌표계를 기억해 두고 보정한다.
+      d.gv = null;
+      if (/[wn]/.test(dir) && activeBox && activeBox.b === b && activeBox.api && typeof activeBox.api.getViewProperties === 'function') {
+        try {
+          const q = JSON.parse(activeBox.api.getViewProperties(1));
+          const w = +q.width, h = +q.height, ix = +q.invXscale, iy = +q.invYscale, xMin = +q.xMin, yMin = +q.yMin;
+          if (w > 0 && h > 0 && ix > 0 && iy > 0 && isFinite(xMin) && isFinite(yMin)) d.gv = { w, h, ix, iy, xMin, yMax: yMin + h * iy };
+        } catch (_) {}
+      }
+    }
   });
   handle.addEventListener('pointermove', e => {
     if (!d || e.pointerId !== d.pid) return;
@@ -2366,6 +2378,7 @@ function dragBox(b, handle, kind, dir) {
       if (!d.last || now - d.last > 80) {
         d.last = now;
         activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
+        keepContent(d);
         syncBoxView(true);
       }
     }
@@ -2374,16 +2387,29 @@ function dragBox(b, handle, kind, dir) {
   });
   ['pointerup', 'pointercancel'].forEach(t => handle.addEventListener(t, e => {
     if (!d || e.pointerId !== d.pid) return;
+    const fin = { x: d.x, y: d.y, w: d.w, h: d.h, gv: d.gv };
     d = null;
     if (kind === 'resize') b.el.classList.remove('sizing');
     if (kind === 'resize' && activeBox && activeBox.b === b && activeBox.api && activeBox.api.setSize) {
       activeBox.api.setSize(Math.round(b.w * S.zoom), Math.round(b.h * S.zoom));
-      setTimeout(() => syncBoxView(true), 120);
+      keepContent(fin);
+      setTimeout(() => { keepContent(fin); syncBoxView(true); }, 120);   // 지오지브라가 크기를 늦게 반영해도 다시 맞춘다
     }
     if (kind === 'move' || kind === 'resize') { showBoxUI(b); markDirty(); }
     const pg = S.pages[b.page];
     if (pg) renderInk(pg);
   }));
+  // 왼쪽·위쪽으로 크기를 바꿀 때 그림이 종이 위 제자리에 머물도록 좌표계를 옮긴다 (배율은 그대로)
+  function keepContent(st) {
+    const g = st && st.gv;
+    if (!g || !activeBox || activeBox.b !== b || !activeBox.api || typeof activeBox.api.setCoordSystem !== 'function') return;
+    const z = S.zoom;
+    const w1 = g.w + (b.w - st.w) * z, h1 = g.h + (b.h - st.h) * z;    // 바뀐 그래픽 화면 크기 (화면 화소)
+    if (!(w1 > 1 && h1 > 1)) return;
+    const xMin = g.xMin + (b.x - st.x) * z * g.ix;                      // 왼쪽 가장자리가 움직인 만큼
+    const yMax = g.yMax - (b.y - st.y) * z * g.iy;                      // 위쪽 가장자리가 움직인 만큼
+    try { activeBox.api.setCoordSystem(xMin, xMin + w1 * g.ix, yMax - h1 * g.iy, yMax); } catch (_) {}
+  }
 }
 function freezeActive() {
   if (!activeBox) return;
