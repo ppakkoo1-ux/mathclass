@@ -481,7 +481,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v60';
+const BUILD = '무한 캔버스 v61';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -1613,10 +1613,12 @@ function navRole(e) {
 function startGesture() {
   const list = [...navPts.values()];
   if (list.length >= 2) {
+    // 두 개 이상 닿으면 '실제로 움직이는' 접촉으로 이동·확대한다 (가만히 닿아 있는 몸·손바닥 등은 빼고)
+    for (const q of list) q.path = 0;
     const a = list[0], b = list[1];
     const vr = viewer.getBoundingClientRect();
     gest = {
-      type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      type: 'pinch', key: '', solo: false, d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
       mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
       z0: S.zoom, tx0: cam.tx, ty0: cam.ty, k: 1, dx: 0, dy: 0, active: false
     };
@@ -1642,8 +1644,9 @@ window.addEventListener('pointerdown', e => {
   if (act && act.ptype !== 'pen') {
     if (performance.now() - act.t0 < 400) cancelAction(); else endAction();
   }
+  if (gest && gest.type === 'pinch') finishPinch();   // 진행 중이던 이동·확대를 지금 상태로 확정
   if (e.pointerType === 'touch') {
-    for (const [id, q] of allPts) if (q.type === 'touch') navPts.set(id, { x: q.x, y: q.y });
+    for (const [id, q] of allPts) if (q.type === 'touch' && !navPts.has(id)) navPts.set(id, { x: q.x, y: q.y });
   } else {
     navPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   }
@@ -1655,6 +1658,7 @@ window.addEventListener('pointermove', e => {
   const np = navPts.get(e.pointerId);
   if (!np) return;
   swallow(e);
+  np.path = (np.path || 0) + Math.hypot(e.clientX - np.x, e.clientY - np.y);
   np.x = e.clientX; np.y = e.clientY;
   if (!gest) return;
   if (gest.type === 'pan') {
@@ -1668,10 +1672,24 @@ window.addEventListener('pointermove', e => {
     panBy(nx - gest.x, ny - gest.y);
     gest.x = nx; gest.y = ny;
   } else {
-    const list = [...navPts.values()];
-    if (list.length < 2) return;
-    const a = list[0], b = list[1];
-    const k = (Math.hypot(a.x - b.x, a.y - b.y) || 1) / gest.d0;
+    const movers = [...navPts.entries()].filter(([, q]) => (q.path || 0) > 6).sort((p1, p2) => p2[1].path - p1[1].path);
+    if (!movers.length) return;
+    const solo = movers.length === 1;
+    const a = movers[0][1], b = solo ? a : movers[1][1];
+    const key = solo ? 's' + movers[0][0] : [movers[0][0], movers[1][0]].sort().join(',');
+    if (key !== gest.key) {
+      // 움직이는 접촉이 바뀌면: 지금까지를 확정하고 새 짝을 기준으로 다시 잡는다
+      if (gest.active) commitPinch(gest);
+      const vr = viewer.getBoundingClientRect();
+      gest.key = key; gest.solo = solo;
+      gest.z0 = S.zoom; gest.tx0 = cam.tx; gest.ty0 = cam.ty;
+      gest.k = 1; gest.dx = 0; gest.dy = 0; gest.zoomOn = false;
+      gest.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      gest.mx = (a.x + b.x) / 2; gest.my = (a.y + b.y) / 2;
+      worldEl.style.transformOrigin = ((gest.mx - vr.left) - cam.tx) + 'px ' + ((gest.my - vr.top) - cam.ty) + 'px';
+      return;
+    }
+    const k = solo ? 1 : (Math.hypot(a.x - b.x, a.y - b.y) || 1) / gest.d0;
     const dx = (a.x + b.x) / 2 - gest.mx, dy = (a.y + b.y) / 2 - gest.my;
     if (!gest.active) {
       // 두 손가락 탭의 흔들림으로 화면이 움직이지 않도록: 일정 이상 움직여야 시작
@@ -1730,6 +1748,10 @@ function finishPinch() {
   if (!gest || gest.type !== 'pinch') return;
   const g = gest;
   gest = null;
+  commitPinch(g);
+}
+// 손가락으로 미리 보여 주던 이동·확대를 실제 화면 위치·배율로 확정
+function commitPinch(g) {
   worldEl.style.transformOrigin = '0 0';
   if (!g.active) { applyCam(); return; }
   if (!g.zoomOn) {
