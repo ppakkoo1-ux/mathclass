@@ -481,7 +481,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v61';
+const BUILD = '무한 캔버스 v62';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2818,12 +2818,24 @@ async function pbBuild(L, cleanBytes, pages, data) {
     arr.push(post);
     node.set(PDFName.of('Contents'), arr);
   }
-  const dstream = ctx.flateStream(_enc(JSON.stringify(data)));
+  // 편집 정보 압축: 브라우저 내장 압축기를 쓴다 (자바스크립트 압축보다 몇 배 빠름). 없으면 예전 방식
+  const raw = _enc(JSON.stringify(data));
+  let dstream = null;
+  if (typeof CompressionStream === 'function' && typeof Response === 'function') {
+    try {
+      const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+      dstream = ctx.stream(z, { Filter: 'FlateDecode' });
+    } catch (_) { dstream = null; }
+  }
+  if (!dstream) dstream = ctx.flateStream(raw);
   doc.catalog.set(PDFName.of(PB_KEY), ctx.register(dstream));
   return await doc.save({ useObjectStreams: false });
 }
 
 
+const r3 = v => Math.round(v * 1000) / 1000;
+const r3pt = q => q.length === 3 ? [r3(q[0]), r3(q[1]), r3(q[2])] : q.map(r3);
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // 화면에 한 번 그려지게 기다림
 function dataUrlBytes(u) { return b64ToBytes(String(u).split(',')[1] || ''); }
 
 // 편집용 정보 (autosave=true 이면 켜진 창을 굳히지 않고 현재 상태만 읽는다)
@@ -2836,7 +2848,7 @@ function boardData(autosave) {
   }
   return {
     v: 2, app: 'pdf-board', pdfName: S.pdfName, zoom: S.zoom, anchor: viewAnchor(),
-    strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts: o.pts })),
+    strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts: o.pts.map(r3pt) })),
     boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
   };
 }
@@ -2887,16 +2899,22 @@ function downloadBytes(bytes, name, type) {
 async function saveFile() {
   if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
   if (!window.PDFLib) { toast('저장 기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
+  let pre = null;
   try {
     // 크롬·엣지: 처음 한 번 위치를 고르면 이후엔 같은 파일에 바로 저장
     if (window.showSaveFilePicker && !S.fileHandle) {
+      // 파일 이름을 고르는 동안 저장할 PDF를 미리 만든다 (창을 끄지 않고 현재 상태만 읽음)
+      pre = buildBoardPdf(true).catch(() => null);
       S.fileHandle = await window.showSaveFilePicker({
         suggestedName: saveName(),
         types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
       });
     }
     busy('저장 중…');
-    const bytes = await buildBoardPdf(false);
+    await nextFrame();                       // '저장 중' 표시가 먼저 화면에 나오게
+    let bytes = pre ? await pre : null;
+    if (bytes) freezeActive();               // 예전과 같이 켜진 지오지브라 창은 그림으로 돌려 둔다
+    else bytes = await buildBoardPdf(false);
     if (S.fileHandle) {
       const w = await S.fileHandle.createWritable();
       await w.write(bytes);
