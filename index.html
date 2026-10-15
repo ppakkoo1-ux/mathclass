@@ -232,7 +232,11 @@ body.lean #toolbar{display:none}
 #busy.show{display:grid}
 
 #perfHud{position:fixed;left:6px;bottom:6px;z-index:95;max-width:min(420px,calc(100% - 12px));padding:8px 10px;border-radius:10px;
-  background:rgba(0,0,0,.82);color:#e8ffe8;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;-webkit-user-select:none;user-select:none}
+  background:rgba(0,0,0,.82);color:#e8ffe8;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;-webkit-user-select:none;user-select:none;
+  max-height:calc(100% - 12px);overflow:auto}
+#perfHud .sus{color:#ffd166}
+#perfHud .st{color:#9be7ff}
+#perfHud .st b{color:#ff8a80;font-weight:700}
 #perfHud .pb{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 #perfHud button{height:30px;padding:0 9px;border:0;border-radius:6px;background:#3a3f4b;color:#fff;font-size:11px;cursor:pointer}
 #perfHud button.on{background:#e03131}
@@ -477,7 +481,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v56';
+const BUILD = '무한 캔버스 v60';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -518,6 +522,42 @@ window.addEventListener('keydown', e => {
     const pkEl = document.getElementById('picker'); if (pkEl) pkEl.classList.remove('show');
   }
 });
+
+// ---- 진단: 입력 기록 (?perf=1 일 때만. 앱 동작은 바꾸지 않고 보기만 한다) ----
+const INLOG = /[?&]perf=1/.test(location.search) ? { ev: [], susp: null, nsusp: 0, lastDraw: -1e9, t0: performance.now(), lastEv: new Map(), lastDown: null, refuse: null } : null;
+function inlog(text, key) {
+  if (!INLOG) return;
+  const t = performance.now(), ev = INLOG.ev, last = ev[ev.length - 1];
+  if (key && last && last.key === key) { last.n++; last.t1 = t; return; }   // 같은 접촉의 움직임은 한 줄로 묶는다
+  ev.push({ t, t1: t, text, key: key || '', n: 1 });
+  if (ev.length > 400) ev.splice(0, 150);
+}
+if (INLOG) {
+  const inHud = e => e.target instanceof Element && !!e.target.closest('#perfHud');
+  const pinfo = e => e.pointerType + '#' + e.pointerId + ' 버튼' + e.button + '/' + e.buttons +
+    ' 크기' + Math.round(e.width || 0) + 'x' + Math.round(e.height || 0) + ' 압력' + (e.pressure || 0).toFixed(2) +
+    ' (' + Math.round(e.clientX) + ',' + Math.round(e.clientY) + ')';
+  ['pointerdown', 'pointerup', 'pointercancel'].forEach(t => window.addEventListener(t, e => {
+    if (t === 'pointerdown') { INLOG.lastEv.set(e.pointerId, performance.now()); INLOG.lastDown = { t: performance.now(), button: e.button, type: e.pointerType, id: e.pointerId }; }
+    else INLOG.lastEv.delete(e.pointerId);
+    if (inHud(e)) return;
+    inlog({ pointerdown: '닿음 ', pointerup: '뗌   ', pointercancel: '취소됨' }[t] + ' ' + pinfo(e));
+  }, { capture: true }));
+  window.addEventListener('pointermove', e => {
+    if (e.buttons) INLOG.lastEv.set(e.pointerId, performance.now());
+    if (inHud(e) || !e.buttons) return;      // 누르지 않고 움직인 것(마우스 이동)은 생략
+    inlog('  움직임 ' + e.pointerType + '#' + e.pointerId, 'm' + e.pointerId);
+  }, { capture: true });
+  window.addEventListener('wheel', e => {
+    if (inHud(e)) return;
+    inlog('휠 dx' + Math.round(e.deltaX) + ' dy' + Math.round(e.deltaY) + ' 단위' + e.deltaMode + (e.ctrlKey ? ' ctrl' : ''), 'w');
+  }, { capture: true, passive: true });
+  ['touchstart', 'touchend', 'touchcancel'].forEach(t => window.addEventListener(t, e => {
+    if (inHud(e)) return;
+    inlog('터치이벤트 ' + t.slice(5) + ' 손가락' + e.touches.length);
+  }, { capture: true, passive: true }));
+  ['contextmenu', 'dblclick', 'gesturestart'].forEach(t => window.addEventListener(t, e => { if (!inHud(e)) inlog('이벤트 ' + t); }, { capture: true }));
+}
 
 // 모든 터치를 가장 먼저 기록한다. 필기가 첫 손가락을 가져가도 두 번째 손가락을 알아볼 수 있도록.
 // 두 손가락 탭 → 펜/지우개, 세 손가락 탭 → 색·굵기
@@ -4206,6 +4246,110 @@ if (/[?&]perf=1/.test(location.search)) {
     try { return fn.apply(this, arguments); }
     finally { const a = acc[name] || (acc[name] = [0, 0]); a[0] += performance.now() - t; a[1]++; }
   };
+  // 앱이 무엇으로 판단했는지 기록. 필기 중이거나 필기 직후 1.5초 안에 화면이 움직이면 그 직전 3초를 '의심 장면'으로 남긴다
+  const markNav = (what, fn) => function () {
+    const now = performance.now();
+    inlog('▶ 앱 판단: ' + what + (act ? ' (필기 중)' : ''), 'nav' + what);
+    if (act || now - INLOG.lastDraw < 1500) {
+      if (!INLOG.susp || now - INLOG.susp.at > 1500) {
+        INLOG.nsusp++;
+        INLOG.susp = { at: now, n: INLOG.nsusp, why: act ? '필기·지우개 도중 화면 이동' : '필기·지우개 직후 ' + Math.round(now - INLOG.lastDraw) + 'ms에 화면 이동' };
+      }
+      INLOG.susp.lines = INLOG.ev.filter(x => x.t1 >= now - 3000);
+    }
+    return fn.apply(this, arguments);
+  };
+  panBy = markNav('화면 이동', panBy);
+  setZoom = markNav('확대/축소', setZoom);
+  finishPinch = markNav('두 손가락 이동·확대 확정', finishPinch);
+  const markAct = (what, fn) => function () {
+    const r = fn.apply(this, arguments);
+    INLOG.lastDraw = performance.now();
+    inlog('▶ 앱 판단: ' + what + (act ? ' [' + act.kind + ']' : ''));
+    return r;
+  };
+  startAction = markAct('필기/지우개 시작', startAction);
+  endAction = markAct('필기/지우개 끝', endAction);
+  cancelAction = markAct('필기/지우개 취소', cancelAction);
+  // ---- 필기가 안 되는 이유 판단 ----
+  const ago = t => ((performance.now() - t) / 1000).toFixed(1) + '초';
+  function whyNo(e) {
+    const t = e.target;
+    if (t instanceof Element && t.closest('.ggbbox.live.manip')) return '켜진 지오지브라 창(조작 상태) 위라서 지오지브라가 입력을 받음';
+    if (!S.doc) return '열린 문서 없음';
+    if (S.mode === 'ggb') return '입력 모드가 "조작"';
+    if (gest) return '앱이 화면 이동 중이라고 판단하고 있음 (' + gest.type + ')';
+    if (navPts.size) return '화면 이동용 접촉이 남아 있음: ' + [...navPts.keys()].map(id => '#' + id).join(',');
+    if (S.mode === 'draw') {
+      if (e.pointerType === 'touch') {
+        if (penSeen) return '펜을 쓴 기기로 인식됨 → 필기 모드에서도 손가락은 이동용';
+        if (tt.pts.size > 1) return '두 번째 접촉으로 판단 (이미 닿아 있는 접촉: ' + [...tt.pts.keys()].filter(id => id !== e.pointerId).map(id => '#' + id).join(',') + ')';
+      }
+      if (e.pointerType === 'mouse' && e.button !== 0) return '마우스 버튼 ' + e.button + ' (오른쪽 클릭 등)';
+    } else {
+      if (e.pointerType === 'touch') return '입력 모드가 "자동": 손가락은 이동용';
+      if (e.pointerType === 'mouse') return '입력 모드가 "자동": 마우스는 이동용';
+    }
+    return '알 수 없음';
+  }
+  const noteRefuse = (e, why) => {
+    const now = performance.now();
+    inlog('✖ 필기 안 함: ' + why);
+    INLOG.refuse = { at: now, why, by: e.pointerType + '#' + e.pointerId, lines: INLOG.ev.filter(x => x.t1 >= now - 3000) };
+  };
+  const capOrig = captureNow;
+  captureNow = function (e) {
+    const r = capOrig.apply(this, arguments);
+    if (e.type === 'pointerdown' && !(e.target instanceof Element && e.target.closest('#perfHud'))) {
+      if (!r && !inUI(e.target)) noteRefuse(e, whyNo(e));
+      else if (r && act) noteRefuse(e, '앞 획이 아직 안 끝남 (' + act.ptype + '#' + act.pid + ', ' + act.kind + ', ' + ago(act.t0) + ' 전 시작) — 뗌 신호 누락 의심');
+    }
+    return r;
+  };
+  const saOrig = startAction;
+  startAction = function (e) {
+    const r = saOrig.apply(this, arguments);
+    if (!r) noteRefuse(e, '필기 시작 거절 (쪽에서 너무 먼 곳 등)');
+    return r;
+  };
+  const teOrig = toggleEraser;
+  toggleEraser = function () {
+    const before = S.tool;
+    const r = teOrig.apply(this, arguments);
+    const ld = INLOG.lastDown, recent = ld && performance.now() - ld.t < 1500;
+    const cause = recent && ld.type === 'mouse' && ld.button === 2 ? '마우스 오른쪽 클릭 (칠판 길게 누르기일 수 있음)'
+      : recent && ld.type === 'touch' ? '두 손가락 탭' : '버튼';
+    inlog('▶ 펜↔지우개 전환: ' + before + ' → ' + S.tool + ' · 원인: ' + cause);
+    return r;
+  };
+  const smOrig = setMode;
+  setMode = function (m) { const b = S.mode; const r = smOrig.apply(this, arguments); if (b !== S.mode) inlog('▶ 입력 모드: ' + b + ' → ' + S.mode); return r; };
+  const stOrig = setTool;
+  setTool = function (t) { const b = S.tool; const r = stOrig.apply(this, arguments); if (b !== S.tool) inlog('▶ 도구: ' + b + ' → ' + S.tool); return r; };
+  const abOrig = activateBox;
+  activateBox = function () { const r = abOrig.apply(this, arguments); inlog('▶ 지오지브라 창 켜짐'); return r; };
+  const MODE_KO = { auto: '자동', draw: '필기', ggb: '조작' }, TOOL_KO = { pen: '펜', eraser: '지우개', select: '영역 선택' };
+  function stateText() {
+    const now = performance.now();
+    const L = [];
+    L.push('입력 모드 ' + (MODE_KO[S.mode] || S.mode) + ' · 도구 ' + (TOOL_KO[S.tool] || S.tool) + ' · 펜 기기 인식 ' + (penSeen ? '예' : '아니오'));
+    L.push('필기 중 ' + (act ? act.ptype + '#' + act.pid + ' ' + act.kind + ' (' + ago(act.t0) + ')' : '없음') +
+      ' · 화면 이동 ' + (gest ? gest.type : '없음') + ' · 이동용 접촉 ' + navPts.size +
+      ' · 켜진 창 ' + (activeBox ? (activeBox.b.manip ? '조작 상태' : '필기 상태') : '없음'));
+    const held = [...allPts.entries()].map(([id, q]) => q.type + '#' + id + '(' + ((now - (INLOG.lastEv.get(id) || q.t)) / 1000).toFixed(1) + '초 전 신호)');
+    L.push('눌린 접촉 ' + (held.length ? held.join(' ') : '없음'));
+    const W = [];
+    if (S.mode !== 'draw') W.push('입력 모드가 "필기"가 아님');
+    if (S.tool === 'eraser') W.push('지금 지우개 상태 → 써도 지워지기만 함');
+    if (S.tool === 'select') W.push('지금 영역 선택 상태');
+    if (S.mode === 'draw' && penSeen) W.push('펜 기기로 인식됨 → 손가락(터치) 필기 불가 (새로고침하면 풀림)');
+    if (act && now - act.t0 > 4000) W.push('필기가 4초 넘게 끝나지 않음 → 뗌 신호 누락 의심, 다음 필기가 막힘');
+    if ((gest || navPts.size) && [...navPts.keys()].every(id => now - (INLOG.lastEv.get(id) || 0) > 2000)) W.push('화면 이동 상태가 풀리지 않음 → 필기가 막힘');
+    for (const [id, q] of allPts) if (now - (INLOG.lastEv.get(id) || q.t) > 3000) W.push(q.type + '#' + id + ' 접촉이 3초 넘게 뗌 신호 없이 남아 있음');
+    if (activeBox && activeBox.b.manip) W.push('지오지브라 창이 조작 상태 → 그 창 안은 필기 안 됨');
+    return '── 지금 상태 ──\n' + L.join('\n') + (W.length ? '\n' + W.map(w => '⚠ ' + w).join('\n') : '\n이상 없음');
+  }
+  const fmt = (list, base) => list.map(x => '+' + String(Math.round(x.t - base)).padStart(5) + 'ms ' + x.text + (x.n > 1 ? ' ×' + x.n : '')).join('\n');
   renderInk = wrapFn('renderInk', renderInk);
   renderInkRect = wrapFn('renderInkRect', renderInkRect);
   sizeInk = wrapFn('sizeInk', sizeInk);
@@ -4219,7 +4363,10 @@ if (/[?&]perf=1/.test(location.search)) {
   hud.id = 'perfHud';
   const txt = document.createElement('div');
   const bar = document.createElement('div'); bar.className = 'pb';
-  hud.append(txt, bar);
+  const sus = document.createElement('div'); sus.className = 'sus';
+  const stEl = document.createElement('div'); stEl.className = 'st';
+  const refEl = document.createElement('div'); refEl.className = 'sus';
+  hud.append(txt, stEl, refEl, sus, bar);
   document.body.appendChild(hud);
   const toggles = [['창 숨김', 'ph-box'], ['필기층 숨김', 'ph-inku'], ['창위층 숨김', 'ph-inkc'], ['PDF층 숨김', 'ph-pdf']];
   for (const [label, cls] of toggles) {
@@ -4229,10 +4376,10 @@ if (/[?&]perf=1/.test(location.search)) {
     bar.appendChild(b);
   }
   const rb = document.createElement('button'); rb.textContent = '기록 초기화';
-  rb.addEventListener('click', () => { peak.fps = Infinity; peak.gap = 0; peak.ltN = 0; peak.ltMs = 0; peak.fn = {}; peak.secs = 0; });
+  rb.addEventListener('click', () => { peak.fps = Infinity; peak.gap = 0; peak.ltN = 0; peak.ltMs = 0; peak.fn = {}; peak.secs = 0; INLOG.ev.length = 0; INLOG.susp = null; INLOG.refuse = null; });
   bar.appendChild(rb);
   const xb = document.createElement('button'); xb.textContent = '진단 접기';
-  xb.addEventListener('click', () => { const hid = txt.style.display === 'none'; txt.style.display = hid ? '' : 'none'; xb.textContent = hid ? '진단 접기' : '진단 펴기'; });
+  xb.addEventListener('click', () => { const hid = txt.style.display === 'none'; txt.style.display = sus.style.display = refEl.style.display = hid ? '' : 'none'; xb.textContent = hid ? '진단 접기' : '진단 펴기'; });
   bar.appendChild(xb);
 
   const peak = { fps: Infinity, gap: 0, ltN: 0, ltMs: 0, fn: {}, secs: 0 };   // 이동이 끝난 뒤에도 가장 나빴던 값을 남겨 둔다
@@ -4275,6 +4422,23 @@ if (/[?&]perf=1/.test(location.search)) {
     lines.push('── 가장 오래 걸린 1초당 함수 시간 (ms ×횟수) ──');
     for (const n of names.slice(0, 6)) lines.push(n + ' ' + peak.fn[n][0].toFixed(0) + ' ×' + peak.fn[n][1].toFixed(0));
     txt.textContent = lines.join('\n');
+    // 입력 기록
+    stEl.innerHTML = '';
+    for (const line of ('\n' + stateText()).split('\n')) {
+      const d = document.createElement('div');
+      if (line.startsWith('⚠')) { const b = document.createElement('b'); b.textContent = line; d.appendChild(b); } else d.textContent = line || '\u00a0';
+      stEl.appendChild(d);
+    }
+    if (INLOG.refuse) {
+      const R = INLOG.refuse, RL = R.lines.slice(-25);
+      refEl.textContent = '\n── 마지막으로 필기를 안 한 순간 (' + ago(R.at) + ' 전, ' + R.by + ') ──\n이유: ' + R.why + '\n' + fmt(RL, RL.length ? RL[0].t : 0);
+    } else refEl.textContent = '\n── 필기를 거절한 적 없음 ──';
+    let inl = '\n── 최근 입력 (최근 12줄) ──\n' + fmt(INLOG.ev.slice(-12), (INLOG.ev[INLOG.ev.length - 12] || INLOG.ev[0] || { t: 0 }).t);
+    if (INLOG.susp && INLOG.susp.lines) {
+      const L = INLOG.susp.lines.slice(-40);
+      inl += '\n── 의심 장면 #' + INLOG.susp.n + ': ' + INLOG.susp.why + ' (직전 3초, 최대 40줄) ──\n' + fmt(L, L.length ? L[0].t : 0);
+    } else inl += '\n── 의심 장면 없음 (필기 중·직후에 화면이 움직이면 여기 남습니다) ──';
+    sus.textContent = inl;
     for (const k of Object.keys(acc)) acc[k] = [0, 0];
     frames = 0; maxGap = 0; ltN = 0; ltMs = 0;
   }, 1000);
