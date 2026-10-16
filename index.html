@@ -481,7 +481,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v62';
+const BUILD = '무한 캔버스 v65';
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2912,18 +2912,30 @@ async function saveFile() {
     }
     busy('저장 중…');
     await nextFrame();                       // '저장 중' 표시가 먼저 화면에 나오게
+    // 단계별 시간 (오래 걸릴 때 어디서 걸리는지 알림에 보여 준다)
+    const tm = [], t0 = performance.now();
+    let tp = t0;
+    const lap = name => { const n = performance.now(); tm.push(name + ' ' + ((n - tp) / 1000).toFixed(1) + '초'); tp = n; };
     let bytes = pre ? await pre : null;
     if (bytes) freezeActive();               // 예전과 같이 켜진 지오지브라 창은 그림으로 돌려 둔다
     else bytes = await buildBoardPdf(false);
+    lap(pre ? 'PDF 만들기(남은 부분)' : 'PDF 만들기');
+    let name;
     if (S.fileHandle) {
       const w = await S.fileHandle.createWritable();
+      lap('파일 열기');
       await w.write(bytes);
+      lap('쓰기');
       await w.close();
-      toast('저장했습니다: ' + S.fileHandle.name);
+      lap('닫기(크롬 마무리)');
+      name = S.fileHandle.name;
     } else {
       downloadBytes(bytes, saveName());
-      toast('저장했습니다: ' + saveName());
+      lap('내려받기 넘기기');
+      name = saveName();
     }
+    const total = (performance.now() - t0) / 1000;
+    toast('저장했습니다: ' + name + (total >= 2 ? ' — ' + total.toFixed(1) + '초 (' + tm.join(' · ') + ', ' + (bytes.length / 1048576).toFixed(1) + 'MB)' : ''));
     const firstTime = !S.saved;
     S.saved = true;
     dirty = false; dirtySince = 0;
