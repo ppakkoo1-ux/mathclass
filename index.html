@@ -153,6 +153,7 @@ body.lean .quick svg{width:22px;height:22px}
 .quick.eraser{background:var(--active);color:var(--active-text);border-color:transparent}
 .quick.eraser .q-pen{display:none}
 .quick.eraser .q-eraser{display:block}
+.quick.on{background:var(--active);color:var(--active-text);border-color:transparent}
 #colorRing{position:absolute;z-index:62;display:none;flex-direction:column;gap:5px;padding:6px;
   background:var(--bar);border:1px solid var(--bar-border);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.22)}
 #colorRing.show{display:flex}
@@ -394,11 +395,13 @@ body.ph-pdf .pdfc{display:none!important}
   </main>
 </div>
 
-<button id="quickBtn2" class="quick" aria-label="펜/지우개 전환 (오른쪽)">
+<button id="quickE2" class="quick qe" aria-label="지우개 (오른쪽)"><svg viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M4.6 15.6l9.8-9.8a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8L11 18.8H7.8z"/><path d="M9.2 11l4.8 4.8"/></svg></button>
+<button id="quickBtn2" class="quick" aria-label="펜, 누르면 색·굵기 (오른쪽)">
   <svg class="q-pen" viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.3 4.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19z"/><path d="M14.5 6.3l3.2 3.2"/></svg>
   <svg class="q-eraser" viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M4.6 15.6l9.8-9.8a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8L11 18.8H7.8z"/><path d="M9.2 11l4.8 4.8"/></svg>
 </button>
-<button id="quickBtn" class="quick" aria-label="펜/지우개 전환">
+<button id="quickE" class="quick qe" aria-label="지우개"><svg viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M4.6 15.6l9.8-9.8a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8L11 18.8H7.8z"/><path d="M9.2 11l4.8 4.8"/></svg></button>
+<button id="quickBtn" class="quick" aria-label="펜, 누르면 색·굵기">
   <svg class="q-pen" viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.3 4.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.2 19z"/><path d="M14.5 6.3l3.2 3.2"/></svg>
   <svg class="q-eraser" viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M4.6 15.6l9.8-9.8a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8L11 18.8H7.8z"/><path d="M9.2 11l4.8 4.8"/></svg>
 </button>
@@ -467,6 +470,8 @@ const viewer = $('viewer'), worldEl = $('world'), emptyEl = $('empty');
 const toastEl = $('toast'), busyEl = $('busy'), quickBtn = $('quickBtn'), selBar = $('selBar');
 const quickBtn2 = $('quickBtn2');
 const quickBtns = [quickBtn, quickBtn2];
+const quickEs = [$('quickE'), $('quickE2')];               // 떠 있는 지우개 버튼 (펜 버튼과 짝)
+const qPair = { quickE: 'quickBtn', quickE2: 'quickBtn2' };
 let lastQuick = quickBtn;
 const zoomPct = $('zoomPct'), partialBtn = $('partialBtn'), shapeBtn = $('shapeBtn');
 const undoBtn = $('undoBtn'), redoBtn = $('redoBtn');
@@ -481,7 +486,9 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v65';
+const BUILD = '무한 캔버스 v67';
+// 비교용: 주소 끝에 ?saveold=1 을 붙이면 v61까지의 저장 방식(자바스크립트 압축, 좌표 그대로, 이름 고른 뒤 만들기)으로 저장
+const SAVE_OLD = /[?&]saveold=1/.test(location.search);
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
@@ -2821,7 +2828,7 @@ async function pbBuild(L, cleanBytes, pages, data) {
   // 편집 정보 압축: 브라우저 내장 압축기를 쓴다 (자바스크립트 압축보다 몇 배 빠름). 없으면 예전 방식
   const raw = _enc(JSON.stringify(data));
   let dstream = null;
-  if (typeof CompressionStream === 'function' && typeof Response === 'function') {
+  if (!SAVE_OLD && typeof CompressionStream === 'function' && typeof Response === 'function') {
     try {
       const z = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
       dstream = ctx.stream(z, { Filter: 'FlateDecode' });
@@ -2848,7 +2855,7 @@ function boardData(autosave) {
   }
   return {
     v: 2, app: 'pdf-board', pdfName: S.pdfName, zoom: S.zoom, anchor: viewAnchor(),
-    strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts: o.pts.map(r3pt) })),
+    strokes: S.strokes.map(o => ({ id: o.id, page: o.page, box: o.box || 0, color: o.color, width: o.width, kind: o.kind || 'pen', pts: SAVE_OLD ? o.pts : o.pts.map(r3pt) })),
     boxes: S.boxes.map(b => ({ id: b.id, page: b.page, x: b.x, y: b.y, w: b.w, h: b.h, state: b.state, png: b.png, view: b.view, viewKey: b.viewKey }))
   };
 }
@@ -2904,14 +2911,14 @@ async function saveFile() {
     // 크롬·엣지: 처음 한 번 위치를 고르면 이후엔 같은 파일에 바로 저장
     if (window.showSaveFilePicker && !S.fileHandle) {
       // 파일 이름을 고르는 동안 저장할 PDF를 미리 만든다 (창을 끄지 않고 현재 상태만 읽음)
-      pre = buildBoardPdf(true).catch(() => null);
+      if (!SAVE_OLD) pre = buildBoardPdf(true).catch(() => null);
       S.fileHandle = await window.showSaveFilePicker({
         suggestedName: saveName(),
         types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
       });
     }
     busy('저장 중…');
-    await nextFrame();                       // '저장 중' 표시가 먼저 화면에 나오게
+    if (!SAVE_OLD) await nextFrame();        // '저장 중' 표시가 먼저 화면에 나오게
     // 단계별 시간 (오래 걸릴 때 어디서 걸리는지 알림에 보여 준다)
     const tm = [], t0 = performance.now();
     let tp = t0;
@@ -2935,7 +2942,7 @@ async function saveFile() {
       name = saveName();
     }
     const total = (performance.now() - t0) / 1000;
-    toast('저장했습니다: ' + name + (total >= 2 ? ' — ' + total.toFixed(1) + '초 (' + tm.join(' · ') + ', ' + (bytes.length / 1048576).toFixed(1) + 'MB)' : ''));
+    toast('저장했습니다: ' + name + (SAVE_OLD ? ' [예전 방식]' : '') + (total >= 2 ? ' — ' + total.toFixed(1) + '초 (' + tm.join(' · ') + ', ' + (bytes.length / 1048576).toFixed(1) + 'MB)' : ''));
     const firstTime = !S.saved;
     S.saved = true;
     dirty = false; dirtySince = 0;
@@ -3743,7 +3750,8 @@ function setTool(t) {
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   const ls = document.getElementById('lsSelect');
   if (ls) ls.classList.toggle('active', t === 'select');
-  quickBtns.forEach(q => q.classList.toggle('eraser', t === 'eraser'));
+  quickBtns.forEach(q => q.classList.toggle('on', t === 'pen'));
+  quickEs.forEach(q => q.classList.toggle('on', t === 'eraser'));
   renderAllInk();
   placeSelBar();
 }
@@ -4021,6 +4029,12 @@ function placeQuick() {
     }
     el.style.left = left + 'px';
     el.style.top = top + 'px';
+    const er = quickEs[quickBtns.indexOf(el)];
+    if (er) {
+      const up = top - QS - 8;
+      er.style.left = left + 'px';
+      er.style.top = (up >= vr.top + QM ? up : top + QS + 8) + 'px';
+    }
   }
   const ex = document.getElementById('expandBtn');
   if (ex) {
@@ -4211,10 +4225,14 @@ function openRing(atX, atY) {
     top = atY - rh - 24;
     if (top < 8) top = Math.min(atY + 24, window.innerHeight - rh - 8);
   } else {
+    // 펜 버튼과 짝 지우개 버튼을 함께 피해서 연다 (팝업이 지우개 버튼을 가리지 않게)
     const q = lastQuick.getBoundingClientRect();
+    const er = quickEs[quickBtns.indexOf(lastQuick)];
+    const e2 = er ? er.getBoundingClientRect() : q;
+    const top0 = Math.min(q.top, e2.top), bot0 = Math.max(q.bottom, e2.bottom);
     left = q.left + q.width / 2 - rw / 2;
-    top = q.top - rh - 10;
-    if (top < 8) top = Math.min(q.bottom + 10, window.innerHeight - rh - 8);
+    top = top0 - rh - 10;
+    if (top < 8) top = Math.min(bot0 + 10, window.innerHeight - rh - 8);
   }
   left = Math.min(Math.max(8, left), window.innerWidth - rw - 8);
   ring.style.left = left + 'px';
@@ -4224,28 +4242,35 @@ function closeRing() { ring.classList.remove('show'); }
 function toggleRing(x, y) { if (ring.classList.contains('show')) closeRing(); else openRing(x, y); }
 const ringOpen = () => ring.classList.contains('show');
 
-let qd = null, qLastTap = 0;
-function wireQuick(el) {
+let qd = null;
+// 펜 버튼: 누르면 펜으로 바꾸고 색·굵기 팝업을 연다 (팝업이 열려 있으면 닫는다)
+function penTap(el) {
+  lastQuick = el;
+  if (S.tool !== 'pen') { setTool('pen'); openRing(); }
+  else toggleRing();
+}
+// 지우개 버튼: 누르면 지우개 ↔ 펜
+function eraserTap() { closeRing(); toggleEraser(); }
+function wireQuick(el, kind) {
+  const posId = qPair[el.id] || el.id;           // 지우개 버튼은 짝인 펜 버튼의 위치를 따른다
   el.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    lastQuick = el;
     try { el.setPointerCapture(e.pointerId); } catch (_) {}
-    const r = el.getBoundingClientRect();
-    qd = { el, pid: e.pointerId, sx: e.clientX, sy: e.clientY, l: r.left, t: r.top, moved: false, long: false };
-    qd.timer = setTimeout(() => { if (qd) { qd.long = true; toggleRing(); } }, 500);
+    const r = document.getElementById(posId).getBoundingClientRect();
+    qd = { el, pid: e.pointerId, sx: e.clientX, sy: e.clientY, l: r.left, t: r.top, moved: false };
   });
   el.addEventListener('pointermove', e => {
     if (!qd || qd.el !== el || e.pointerId !== qd.pid) return;
     const dx = e.clientX - qd.sx, dy = e.clientY - qd.sy;
     if (!qd.moved && Math.hypot(dx, dy) < 14) return;
-    if (!qd.moved) { clearTimeout(qd.timer); closeRing(); }
+    if (!qd.moved) closeRing();
     qd.moved = true;
     const vr = viewer.getBoundingClientRect();
     const qs = document.body.classList.contains('lean') ? 46 : QS;
     const spanX = Math.max(1, vr.width - qs - 2 * QM), spanY = Math.max(1, vr.height - qs - 2 * QM);
-    const q = qposOf[el.id];
+    const q = qposOf[posId];
     q.rx = clamp01((qd.l + dx - vr.left - QM) / spanX);
     q.ry = clamp01((qd.t + dy - vr.top - QM) / spanY);
     q.def = false;
@@ -4255,22 +4280,19 @@ function wireQuick(el) {
     if (!qd || qd.el !== el || e.pointerId !== qd.pid) return;
     const d = qd;
     qd = null;
-    clearTimeout(d.timer);
     if (d.moved) {
-      const q = qposOf[el.id];
+      const q = qposOf[posId];
       try { localStorage.setItem(q.key, JSON.stringify({ rx: q.rx, ry: q.ry })); } catch (_) {}
       return;
     }
-    if (d.long || e.type !== 'pointerup') return;
-    const now = performance.now();
-    if (now - qLastTap < 400) { qLastTap = 0; toggleEraser(); toggleRing(); return; }
-    qLastTap = now;
-    toggleEraser();
+    if (e.type !== 'pointerup') return;
+    if (kind === 'pen') penTap(el); else eraserTap();
   }));
   el.addEventListener('touchstart', e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
-  el.addEventListener('click', e => { if (e.detail === 0) toggleEraser(); });
+  el.addEventListener('click', e => { if (e.detail === 0) { if (kind === 'pen') penTap(el); else eraserTap(); } });   // 키보드
 }
-quickBtns.forEach(wireQuick);
+quickBtns.forEach(el => wireQuick(el, 'pen'));
+quickEs.forEach(el => wireQuick(el, 'eraser'));
 
 window.addEventListener('resize', () => { placeQuick(); placeSelBar(); updateVisible(); });
 window.addEventListener('orientationchange', () => setTimeout(() => { placeQuick(); updateVisible(); }, 300));
