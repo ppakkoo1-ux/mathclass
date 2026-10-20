@@ -41,6 +41,12 @@ body.barbottom #toolbar{border-bottom:0;border-top:1px solid var(--bar-border);
 }
 #toolbar::-webkit-scrollbar{display:none}
 .group{display:flex;align-items:center;gap:3px;flex:0 0 auto}
+#fileInfo{display:none;flex-direction:column;justify-content:center;min-width:0;max-width:240px;height:44px;padding:0 8px;border-radius:8px;
+  background:var(--btn);line-height:1.25;flex:0 1 auto}
+#fileInfo.show{display:flex}
+#fileInfo b{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fileInfo small{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fileInfo.dirty small{color:#e8590c;font-weight:600}
 .sep{width:1px;height:28px;background:var(--sep);flex:0 0 auto;margin:0 2px}
 .spacer{flex:1 1 auto;min-width:0}
 button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -297,7 +303,7 @@ body.ph-pdf .pdfc{display:none!important}
       <button class="tool" id="openPdfBtn" aria-label="PDF 열기">
         <svg viewBox="0 0 24 24"><path d="M4 19.5V6a2 2 0 0 1 2-2h6l2 2h4a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M12 15.5v-6M9.5 12L12 9.5l2.5 2.5"/></svg><span>PDF 열기</span>
       </button>
-      <button class="tool" id="saveBtn" aria-label="저장">
+      <button class="tool" id="saveBtn" aria-label="저장 (길게 누르면 다른 이름으로 저장)" title="저장 · 길게 누르면 다른 이름으로 저장">
         <svg viewBox="0 0 24 24"><path d="M5 4.5h11L19.5 8v11.5h-15z"/><path d="M8.5 4.5v5h7"/><rect x="8" y="13" width="8" height="6.5"/></svg><span>저장</span>
       </button>
       <button class="tool" id="driveBtn" aria-label="드라이브">
@@ -306,6 +312,7 @@ body.ph-pdf .pdfc{display:none!important}
       <button class="tool" id="loadBtn" aria-label="불러오기">
         <svg viewBox="0 0 24 24"><path d="M4 19.5V6a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v11.5z"/><path d="M12 9.5v6M9.5 13L12 15.5 14.5 13"/></svg><span>불러오기</span>
       </button>
+      <div id="fileInfo" role="status" aria-live="polite"><b id="fileName"></b><small id="fileState"></small></div>
     </div>
     <div class="sep"></div>
     <div class="seg-ctl" role="group" aria-label="입력 모드">
@@ -486,7 +493,7 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v67';
+const BUILD = '무한 캔버스 v68';
 // 비교용: 주소 끝에 ?saveold=1 을 붙이면 v61까지의 저장 방식(자바스크립트 압축, 좌표 그대로, 이름 고른 뒤 만들기)으로 저장
 const SAVE_OLD = /[?&]saveold=1/.test(location.search);
 const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
@@ -2081,17 +2088,57 @@ async function loadPdfFromB64(b64, reset) {
   worldLayout();
   layout();
 }
-async function openPdfFile(file) {
+async function openPdfFile(file, handle) {
   busy('PDF 여는 중…');
+  let ok = false;
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     await openPdfBytes(bytes, file.name);
     S.driveFile = null;
+    S.fileHandle = handle || null;      // 이 파일에서 연 것: 저장하면 이 파일에 바로 쓴다
+    ok = true;
   } catch (err) {
     toast('PDF를 열지 못했습니다: ' + err.message);
   }
   busy(false);
+  updateFileInfo();
+  return ok;
 }
+// 크롬·엣지: 파일을 고를 때 그 파일 자체를 기억해 둔다 (사파리 등은 예전 방식)
+async function openWithPicker() {
+  let hs;
+  try {
+    hs = await window.showOpenFilePicker({ id: 'pdfboard-open', types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] });
+  } catch (err) {
+    if (!err || err.name !== 'AbortError') toast('파일을 열지 못했습니다: ' + (err && err.message));
+    return;
+  }
+  const h = hs && hs[0];
+  if (!h) return;
+  try { await openPdfFile(await h.getFile(), h); }
+  catch (err) { toast('파일을 열지 못했습니다: ' + err.message); }
+}
+// 지금 필기 중인 파일 표시
+function updateFileInfo() {
+  const box = document.getElementById('fileInfo');
+  if (!box) return;
+  if (!S.doc) { box.classList.remove('show'); document.title = 'PDF 판서 · 지오지브라'; return; }
+  let name, state;
+  if (S.fileHandle) { name = S.fileHandle.name; state = dirty ? '저장 안 된 필기 있음' : '저장됨'; }
+  else if (S.driveFile) { name = S.driveFile.name; state = '드라이브에서 엶 · 저장할 때 위치 선택'; }
+  else { name = S.pdfName || '이름 없음'; state = '저장할 때 위치 선택'; }
+  const key = name + '|' + state;
+  if (box._k !== key) {
+    box._k = key;
+    document.getElementById('fileName').textContent = name;
+    document.getElementById('fileState').textContent = state;
+    box.title = name + ' — ' + state;
+    box.classList.toggle('dirty', !!(S.fileHandle && dirty));
+    document.title = (dirty ? '● ' : '') + name + ' – PDF 판서';
+  }
+  box.classList.add('show');
+}
+setInterval(updateFileInfo, 700);   // 드라이브·자동 저장본으로 연 경우 등도 따라가게
 async function openPdfBytes(bytes, name) {
   {
     let data = null;
@@ -2903,19 +2950,37 @@ function downloadBytes(bytes, name, type) {
 }
 
 // 저장: 필기가 찍힌 PDF (다른 뷰어에서도 보이고, 이 앱에서 열면 다시 편집 가능)
-async function saveFile() {
+// 이 파일에 쓰기 허락 (크롬은 처음 한 번 '저장 허용' 확인을 띄운다)
+async function ensureWrite(h) {
+  try {
+    if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
+    return (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
+  } catch (_) { return false; }
+}
+let saveRunning = false;   // 저장이 겹치지 않게 (길게 누르기 뒤 오른쪽 클릭이 또 오는 경우 등)
+async function saveFile(opt) {
+  if (saveRunning) return;
+  saveRunning = true;
+  try { await saveFileInner(opt); } finally { saveRunning = false; }
+}
+async function saveFileInner(opt) {
   if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
   if (!window.PDFLib) { toast('저장 기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
+  const saveAs = !!(opt && opt.as);
   let pre = null;
   try {
-    // 크롬·엣지: 처음 한 번 위치를 고르면 이후엔 같은 파일에 바로 저장
-    if (window.showSaveFilePicker && !S.fileHandle) {
-      // 파일 이름을 고르는 동안 저장할 PDF를 미리 만든다 (창을 끄지 않고 현재 상태만 읽음)
-      if (!SAVE_OLD) pre = buildBoardPdf(true).catch(() => null);
-      S.fileHandle = await window.showSaveFilePicker({
-        suggestedName: saveName(),
-        types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
-      });
+    // 크롬·엣지: 열어 둔 파일(또는 마지막으로 저장한 파일)에 바로 저장. 다른 이름으로 저장일 때만 위치를 고른다
+    if (window.showSaveFilePicker) {
+      let h = saveAs ? null : S.fileHandle;
+      if (h && !(await ensureWrite(h))) { toast('이 파일에 저장할 수 없어 위치를 고릅니다.'); h = null; }
+      if (!h) {
+        // 파일 이름을 고르는 동안 저장할 PDF를 미리 만든다 (창을 끄지 않고 현재 상태만 읽음)
+        if (!SAVE_OLD) pre = buildBoardPdf(true).catch(() => null);
+        const o = { suggestedName: S.fileHandle ? S.fileHandle.name : saveName(), types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] };
+        if (S.fileHandle) o.startIn = S.fileHandle;      // 지금 파일이 있는 폴더에서 시작
+        h = await window.showSaveFilePicker(o);
+      }
+      S.fileHandle = h;
     }
     busy('저장 중…');
     if (!SAVE_OLD) await nextFrame();        // '저장 중' 표시가 먼저 화면에 나오게
@@ -2951,6 +3016,7 @@ async function saveFile() {
     if (!err || err.name !== 'AbortError') toast('저장 실패: ' + (err && err.message));
   }
   busy(false);
+  updateFileInfo();
 }
 
 // 저장해 둔 편집 정보를 화면에 되살림
@@ -3620,6 +3686,7 @@ let dirty = false, dirtySince = 0, autoTimer = null, autoSlot = 1, autoDir = nul
 function markDirty() {
   if (!S.doc) return;
   dirty = true;
+  updateFileInfo();
   if (!dirtySince) dirtySince = Date.now();
   if (!S.saved) return;
   clearTimeout(autoTimer);
@@ -3897,7 +3964,7 @@ const widthsEl = $('widths');
   widthsEl.appendChild(b);
 });
 
-$('openPdfBtn').addEventListener('click', () => pdfInput.click());
+$('openPdfBtn').addEventListener('click', () => (window.showOpenFilePicker ? openWithPicker() : pdfInput.click()));
 pdfInput.addEventListener('change', () => {
   const f = pdfInput.files && pdfInput.files[0];
   pdfInput.value = '';
@@ -3912,7 +3979,21 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
   if (f) loadFile(f);
 });
-$('saveBtn').addEventListener('click', saveFile);
+// 저장 버튼: 누르면 지금 파일에 저장, 길게 누르거나 오른쪽 클릭하면 다른 이름으로 저장
+(() => {
+  const sb = $('saveBtn');
+  let timer = null, longDone = false, lastAs = 0;
+  const asSave = () => { const n = performance.now(); if (n - lastAs < 800) return; lastAs = n; saveFile({ as: true }); };
+  sb.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    longDone = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { longDone = true; toast('다른 이름으로 저장'); asSave(); }, 600);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => sb.addEventListener(t, () => clearTimeout(timer)));
+  sb.addEventListener('click', e => { if (longDone) { longDone = false; e.preventDefault(); return; } saveFile(); });
+  sb.addEventListener('contextmenu', e => { e.preventDefault(); clearTimeout(timer); longDone = true; asSave(); });
+})();
 $('driveBtn').addEventListener('click', () => (drivePanel.classList.contains('show') ? closeDrive() : openDrive(driveCur ? driveCur.folder.id : null)));
 $('addGgbBtn').addEventListener('click', addBox);
 $('zoomIn').addEventListener('click', () => setZoom(S.zoom * 1.25));
