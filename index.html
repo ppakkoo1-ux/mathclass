@@ -192,30 +192,30 @@ body.lean #toolbar{display:none}
 #loadMenu .lm-h{font-size:12px;color:var(--muted);padding:4px 6px 2px}
 #loadMenu button{text-align:left;height:40px;padding:0 10px;border:0;border-radius:8px;background:var(--btn);color:var(--text);cursor:pointer;font-size:13px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#drivePanel{position:absolute;z-index:79;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;
+#drivePanel,#localPanel{position:absolute;z-index:79;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;
   width:min(560px, calc(100% - 24px));max-height:min(620px, calc(100% - 40px));padding:10px;gap:8px;
   background:var(--bar);color:var(--text);border:1px solid var(--bar-border);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
-#drivePanel.show{display:flex}
-#drivePanel .dv-head{display:flex;align-items:center;gap:8px}
-#drivePanel .dv-head b{flex:1}
-#drivePanel .dv-path{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
-#drivePanel .dv-path span{color:var(--muted)}
-#drivePanel button{font:inherit;cursor:pointer}
-#drivePanel .dv-crumb{border:0;background:transparent;color:var(--active);padding:4px 2px;font-weight:600}
-#drivePanel .dv-x,#drivePanel .dv-btn{height:34px;padding:0 12px;border:0;border-radius:8px;background:var(--btn);color:var(--text)}
-#drivePanel .ok{background:var(--active);color:var(--active-text)}
-#drivePanel .dv-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-#drivePanel .dv-note{font-size:12px;color:var(--muted)}
-#drivePanel .dv-pick{font-size:13px;font-weight:600;color:var(--active);padding:2px 4px}
-#drivePanel .dv-list{overflow:auto;display:flex;flex-direction:column;gap:4px;min-height:120px}
-#drivePanel .dv-item{text-align:left;border:0;border-radius:8px;background:var(--btn);color:var(--text);padding:10px 12px;
+#drivePanel.show,#localPanel.show{display:flex}
+#drivePanel .dv-head,#localPanel .dv-head{display:flex;align-items:center;gap:8px}
+#drivePanel .dv-head b,#localPanel .dv-head b{flex:1}
+#drivePanel .dv-path,#localPanel .dv-path{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+#drivePanel .dv-path span,#localPanel .dv-path span{color:var(--muted)}
+#drivePanel button,#localPanel button{font:inherit;cursor:pointer}
+#drivePanel .dv-crumb,#localPanel .dv-crumb{border:0;background:transparent;color:var(--active);padding:4px 2px;font-weight:600}
+#drivePanel .dv-x,#drivePanel .dv-btn,#localPanel .dv-x,#localPanel .dv-btn{height:34px;padding:0 12px;border:0;border-radius:8px;background:var(--btn);color:var(--text)}
+#drivePanel .ok,#localPanel .ok{background:var(--active);color:var(--active-text)}
+#drivePanel .dv-tools,#localPanel .dv-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#drivePanel .dv-note,#localPanel .dv-note{font-size:12px;color:var(--muted)}
+#drivePanel .dv-pick,#localPanel .dv-pick{font-size:13px;font-weight:600;color:var(--active);padding:2px 4px}
+#drivePanel .dv-list,#localPanel .dv-list{overflow:auto;display:flex;flex-direction:column;gap:4px;min-height:120px}
+#drivePanel .dv-item,#localPanel .dv-item{text-align:left;border:0;border-radius:8px;background:var(--btn);color:var(--text);padding:10px 12px;
   display:flex;flex-direction:column;gap:2px;font-size:14px}
-#drivePanel .dv-item small{color:var(--muted);font-size:11px}
-#drivePanel .dv-msg{color:var(--muted);padding:16px;text-align:center}
-#drivePanel .dv-form{display:flex;flex-direction:column;gap:10px}
-#drivePanel label{display:flex;flex-direction:column;gap:4px;font-size:13px}
-#drivePanel input{height:38px;padding:0 10px;border:1px solid var(--bar-border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;font-size:14px}
-#drivePanel p{margin:0;font-size:12px;color:var(--muted)}
+#drivePanel .dv-item small,#localPanel .dv-item small{color:var(--muted);font-size:11px}
+#drivePanel .dv-msg,#localPanel .dv-msg{color:var(--muted);padding:16px;text-align:center}
+#drivePanel .dv-form,#localPanel .dv-form{display:flex;flex-direction:column;gap:10px}
+#drivePanel label,#localPanel label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+#drivePanel input,#localPanel input{height:38px;padding:0 10px;border:1px solid var(--bar-border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;font-size:14px}
+#drivePanel p,#localPanel p{margin:0;font-size:12px;color:var(--muted)}
 #picker{position:absolute;z-index:78;display:none;flex-direction:column;gap:6px;padding:8px;
   background:var(--bar);border:1px solid var(--bar-border);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 #picker.show{display:flex}
@@ -237,6 +237,10 @@ body.lean #toolbar{display:none}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #busy{position:absolute;inset:0;z-index:80;display:none;place-items:center;background:rgba(0,0,0,.35);color:#fff;font-size:15px}
 #busy.show{display:grid}
+#localPanel .lp-sec{font-size:12px;color:var(--muted);padding:6px 4px 2px}
+#localPanel .lp-save{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#localPanel .lp-save input{flex:1 1 200px;min-width:0}
+#localPanel .dv-item.cur{outline:2px solid var(--active)}
 
 #perfHud{position:fixed;left:6px;bottom:6px;z-index:95;max-width:min(420px,calc(100% - 12px));padding:8px 10px;border-radius:10px;
   background:rgba(0,0,0,.82);color:#e8ffe8;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;-webkit-user-select:none;user-select:none;
@@ -493,10 +497,12 @@ const PALKEY = 'pdfCanvas.pal';
 const WIDTHS = [2, 3, 5];
 const GLOW = 'rgba(43,89,195,0.28)';
 const SEL = '#2b59c3';
-const BUILD = '무한 캔버스 v68';
+const BUILD = '무한 캔버스 v69';
 // 비교용: 주소 끝에 ?saveold=1 을 붙이면 v61까지의 저장 방식(자바스크립트 압축, 좌표 그대로, 이름 고른 뒤 만들기)으로 저장
 const SAVE_OLD = /[?&]saveold=1/.test(location.search);
-const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
+// 윈도우 프로그램(PDF 판서.exe) 안에서 열렸는지: 그러면 내 폴더 파일을 직접 읽고 쓴다
+const NATIVE = window.boardNative || null;
+const PDFJS_BASE = NATIVE ? 'app://local/lib/pdfjs/' : 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
 const MODE_MSG = {
   auto: '자동: 펜은 필기, 손가락은 스크롤·확대·지오지브라 조작',
   draw: '필기: 모든 입력이 필기가 됩니다 (이 모드에서는 손가락 스크롤이 안 됩니다)',
@@ -632,7 +638,7 @@ function busy(msg) {
   if (msg) { busyEl.textContent = msg; busyEl.classList.add('show'); }
   else busyEl.classList.remove('show');
 }
-const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #insDlg, #perfHud, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
+const inUI = t => t instanceof Node && !!(t.closest && t.closest('#toolbar, #leanStack, .quick, #selBar, #colorRing, #picker, #drivePanel, #localPanel, #insDlg, #perfHud, #expandBtn, #autoBar, #loadMenu, .bxhead, .bxresize, .bxtoggle'));
 function swallow(e) {
   if (e.cancelable) e.preventDefault();
   e.stopImmediatePropagation();
@@ -2124,7 +2130,8 @@ function updateFileInfo() {
   if (!box) return;
   if (!S.doc) { box.classList.remove('show'); document.title = 'PDF 판서 · 지오지브라'; return; }
   let name, state;
-  if (S.fileHandle) { name = S.fileHandle.name; state = dirty ? '저장 안 된 필기 있음' : '저장됨'; }
+  if (S.localFile) { name = S.localFile.name; state = (S.localFile.dir ? S.localFile.dir.replace(/\//g, ' › ') + ' · ' : '') + (dirty ? '저장 안 된 필기 있음' : '저장됨'); }
+  else if (S.fileHandle) { name = S.fileHandle.name; state = dirty ? '저장 안 된 필기 있음' : '저장됨'; }
   else if (S.driveFile) { name = S.driveFile.name; state = '드라이브에서 엶 · 저장할 때 위치 선택'; }
   else { name = S.pdfName || '이름 없음'; state = '저장할 때 위치 선택'; }
   const key = name + '|' + state;
@@ -2133,7 +2140,7 @@ function updateFileInfo() {
     document.getElementById('fileName').textContent = name;
     document.getElementById('fileState').textContent = state;
     box.title = name + ' — ' + state;
-    box.classList.toggle('dirty', !!(S.fileHandle && dirty));
+    box.classList.toggle('dirty', !!((S.fileHandle || S.localFile) && dirty));
     document.title = (dirty ? '● ' : '') + name + ' – PDF 판서';
   }
   box.classList.add('show');
@@ -2148,6 +2155,7 @@ async function openPdfBytes(bytes, name) {
     S.pdfB64 = abToB64(bytes);
     S.pdfName = name;
     S.fileHandle = null;
+    S.localFile = null;
     await loadPdfFromB64(S.pdfB64, true);
     if (data) {
       await applyBoard(data);
@@ -2967,6 +2975,7 @@ async function saveFileInner(opt) {
   if (!S.doc) { toast('먼저 PDF를 여세요.'); return; }
   if (!window.PDFLib) { toast('저장 기능을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요.'); return; }
   const saveAs = !!(opt && opt.as);
+  if (NATIVE) { await saveNative(saveAs); return; }
   let pre = null;
   try {
     // 크롬·엣지: 열어 둔 파일(또는 마지막으로 저장한 파일)에 바로 저장. 다른 이름으로 저장일 때만 위치를 고른다
@@ -3631,6 +3640,159 @@ async function openDriveFile(id, modified) {
   }
   busy(false);
 }
+
+/* ---------- 내 폴더 (윈도우 프로그램에서만): 앱 안에서 열기·저장 ---------- */
+const localPanel = document.createElement('div');
+localPanel.id = 'localPanel';
+document.body.appendChild(localPanel);
+const lp = { mode: 'open', rel: '', name: '', resolve: null };
+const RECENT_KEY = 'pdfBoard.recentLocal';
+function recentList() { try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch (_) { return []; } }
+function pushRecent(rel) {
+  const l = recentList().filter(x => x !== rel);
+  l.unshift(rel);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(l.slice(0, 8))); } catch (_) {}
+}
+function dropRecent(rel) { try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentList().filter(x => x !== rel))); } catch (_) {} }
+function closeLocal() {
+  localPanel.classList.remove('show');
+  if (lp.resolve) { const r = lp.resolve; lp.resolve = null; r(null); }
+}
+async function openLocalPanel(mode, startRel, name) {
+  lp.mode = mode; lp.name = name || '';
+  let root = await NATIVE.getRoot();
+  if (!root) {
+    toast('수업 파일을 모아 둔 폴더(보관 폴더)를 골라 주세요. 한 번만 정하면 됩니다.');
+    root = await NATIVE.pickRoot();
+    if (!root) { closeLocal(); return; }
+  }
+  localPanel.classList.add('show');
+  await showLocal(startRel || '');
+}
+async function showLocal(rel) {
+  let d;
+  try { d = await NATIVE.list(rel); }
+  catch (err) {
+    if (rel) return showLocal('');                 // 폴더가 없어졌으면 보관 폴더 맨 위로
+    localPanel.innerHTML = '<div class="dv-head"><b>내 폴더</b><button class="dv-x">닫기</button></div><div class="dv-msg">' + escapeHtml(err.message) + '</div>' +
+      '<div class="dv-tools"><button class="dv-btn" id="lpRoot">보관 폴더 다시 고르기</button></div>';
+    localPanel.querySelector('.dv-x').onclick = closeLocal;
+    localPanel.querySelector('#lpRoot').onclick = async () => { if (await NATIVE.pickRoot()) showLocal(''); };
+    return;
+  }
+  lp.rel = d.rel;
+  const save = lp.mode === 'save';
+  const parts = d.rel ? d.rel.split('/') : [];
+  let crumbs = '<button class="dv-crumb" data-rel="">' + escapeHtml(d.rootName) + '</button>';
+  parts.forEach((p, i) => { crumbs += '<span>›</span><button class="dv-crumb" data-rel="' + escapeHtml(parts.slice(0, i + 1).join('/')) + '">' + escapeHtml(p) + '</button>'; });
+  let html = '<div class="dv-pick">' + (save ? '저장할 폴더로 들어가서 이름을 정하세요' : '열 파일을 고르세요') + '</div>' +
+    '<div class="dv-head"><div class="dv-path">' + crumbs + '</div><button class="dv-x">닫기</button></div>' +
+    '<div class="dv-tools"><button class="dv-btn" id="lpNew">새 폴더</button><button class="dv-btn" id="lpRoot">보관 폴더 바꾸기</button>' +
+    (!save && driveConf() ? '<button class="dv-btn" id="lpDrive">드라이브에서 열기</button>' : '') + '</div><div class="dv-list">';
+  if (!save && !d.rel) {
+    const rec = recentList();
+    if (rec.length) {
+      html += '<div class="lp-sec">최근에 연 파일</div>';
+      for (const r of rec) {
+        const i = r.lastIndexOf('/');
+        html += '<button class="dv-item lp-file" data-rel="' + escapeHtml(r) + '">🕘 ' + escapeHtml(r.slice(i + 1)) + '<small>' + escapeHtml(i < 0 ? d.rootName : r.slice(0, i).replace(/\//g, ' › ')) + '</small></button>';
+      }
+      html += '<div class="lp-sec">' + escapeHtml(d.rootName) + '</div>';
+    }
+  }
+  for (const f of d.folders) html += '<button class="dv-item dv-folder lp-dir" data-rel="' + escapeHtml(f.rel) + '">📁 ' + escapeHtml(f.name) + '</button>';
+  for (const f of d.files) {
+    const cur = S.localFile && S.localFile.rel === f.rel;
+    html += '<button class="dv-item lp-file' + (cur ? ' cur' : '') + '" data-rel="' + escapeHtml(f.rel) + '" data-name="' + escapeHtml(f.name) + '">📄 ' + escapeHtml(f.name) +
+      '<small>' + (cur ? '지금 파일 · ' : '') + fmtTime(f.mtime) + ' · ' + fmtSize(f.size) + '</small></button>';
+  }
+  if (!d.folders.length && !d.files.length) html += '<div class="dv-msg">비어 있는 폴더입니다.</div>';
+  html += '</div>';
+  if (save) html += '<div class="lp-save"><input id="lpName" type="text" autocomplete="off" placeholder="파일 이름"><button class="dv-btn ok" id="lpSave">여기에 저장</button></div>';
+  localPanel.innerHTML = html;
+  localPanel.querySelector('.dv-x').onclick = closeLocal;
+  localPanel.querySelectorAll('.dv-crumb, .lp-dir').forEach(b => b.onclick = () => showLocal(b.dataset.rel));
+  localPanel.querySelector('#lpRoot').onclick = async () => { if (await NATIVE.pickRoot()) showLocal(''); };
+  localPanel.querySelector('#lpNew').onclick = async () => {
+    const nm = window.prompt('새 폴더 이름');
+    if (!nm) return;
+    try { await NATIVE.mkdir(lp.rel, nm.trim()); showLocal((lp.rel ? lp.rel + '/' : '') + nm.trim()); }
+    catch (err) { toast('폴더를 만들지 못했습니다: ' + err.message); }
+  };
+  const dv = localPanel.querySelector('#lpDrive');
+  if (dv) dv.onclick = () => { closeLocal(); openDrive(driveCur ? driveCur.folder.id : null); };
+  if (save) {
+    const inp = localPanel.querySelector('#lpName');
+    inp.value = lp.name.replace(/\.pdf$/i, '');
+    localPanel.querySelectorAll('.lp-file').forEach(b => b.onclick = () => { inp.value = b.dataset.name.replace(/\.pdf$/i, ''); inp.focus(); });
+    const go = async () => {
+      let nm = inp.value.trim().replace(/[\\/:*?"<>|]/g, '');
+      if (!nm) { inp.focus(); return; }
+      if (!/\.pdf$/i.test(nm)) nm += '.pdf';
+      const rel = (lp.rel ? lp.rel + '/' : '') + nm;
+      const same = S.localFile && S.localFile.rel === rel;
+      if (!same && await NATIVE.exists(rel) && !window.confirm('"' + nm + '" 파일이 이미 있습니다. 덮어쓸까요?')) return;
+      localPanel.classList.remove('show');
+      const r = lp.resolve; lp.resolve = null;
+      if (r) r(rel);
+    };
+    localPanel.querySelector('#lpSave').onclick = go;
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    setTimeout(() => { inp.focus(); inp.select(); }, 0);
+  } else {
+    localPanel.querySelectorAll('.lp-file').forEach(b => b.onclick = () => openLocalFile(b.dataset.rel));
+  }
+}
+async function openLocalFile(rel) {
+  closeLocal();
+  busy('PDF 여는 중…');
+  try {
+    const r = await NATIVE.read(rel);
+    await openPdfBytes(r.bytes, r.name);
+    S.driveFile = null;
+    S.localFile = { rel: r.rel, dir: r.dir, name: r.name };
+    pushRecent(r.rel);
+  } catch (err) {
+    dropRecent(rel);
+    toast('열지 못했습니다: ' + err.message);
+  }
+  busy(false);
+  updateFileInfo();
+}
+function pickLocalSave(startRel, name) {
+  return new Promise(res => { lp.resolve = res; openLocalPanel('save', startRel, name); });
+}
+// 저장: 지금 파일에 바로. 다른 이름으로 저장이거나 아직 파일이 없으면 앱 안에서 위치·이름을 고른다
+async function saveNative(saveAs) {
+  let target = (!saveAs && S.localFile) ? S.localFile.rel : null;
+  let pre = null;
+  try {
+    if (!target) {
+      pre = buildBoardPdf(true).catch(() => null);      // 고르는 동안 미리 만든다
+      target = await pickLocalSave(S.localFile ? S.localFile.dir : lp.rel, S.localFile ? S.localFile.name : saveName());
+      if (!target) return;
+    }
+    busy('저장 중…');
+    await nextFrame();
+    const t0 = performance.now();
+    let bytes = pre ? await pre : null;
+    if (bytes) freezeActive();
+    else bytes = await buildBoardPdf(false);
+    const tb = performance.now();
+    const r = await NATIVE.write(target, bytes);
+    S.localFile = { rel: r.rel, dir: r.dir, name: r.name };
+    pushRecent(r.rel);
+    const total = (performance.now() - t0) / 1000;
+    toast('저장했습니다: ' + r.name + (total >= 2 ? ' — ' + total.toFixed(1) + '초 (PDF 만들기 ' + ((tb - t0) / 1000).toFixed(1) + '초 · 쓰기 ' + r.sec.toFixed(1) + '초, ' + (bytes.length / 1048576).toFixed(1) + 'MB)' : ''));
+    S.saved = true;
+    dirty = false; dirtySince = 0;
+  } catch (err) {
+    toast('저장 실패: ' + (err && err.message));
+  } finally {
+    busy(false);
+    updateFileInfo();
+  }
+}
 function escapeHtml(t) {
   return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -3780,7 +3942,7 @@ async function openLoadMenu() {
       busy('자동 저장본 여는 중…');
       try {
         const rec = await idbGet(it.key);
-        S.pdfName = rec.name; S.pdfB64 = rec.pdfB64; S.fileHandle = null;
+        S.pdfName = rec.name; S.pdfB64 = rec.pdfB64; S.fileHandle = null; S.localFile = null;
         await loadPdfFromB64(S.pdfB64, true);
         await applyBoard(rec.data);
         S.saved = true;
@@ -3964,7 +4126,7 @@ const widthsEl = $('widths');
   widthsEl.appendChild(b);
 });
 
-$('openPdfBtn').addEventListener('click', () => (window.showOpenFilePicker ? openWithPicker() : pdfInput.click()));
+$('openPdfBtn').addEventListener('click', () => (NATIVE ? openLocalPanel('open') : window.showOpenFilePicker ? openWithPicker() : pdfInput.click()));
 pdfInput.addEventListener('change', () => {
   const f = pdfInput.files && pdfInput.files[0];
   pdfInput.value = '';
@@ -4610,7 +4772,7 @@ function addScript(src, onload) {
   s.onerror = () => toast('스크립트를 불러오지 못했습니다: ' + src);
   document.head.appendChild(s);
 }
-addScript('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js');
+addScript(NATIVE ? 'app://local/lib/pdf-lib.min.js' : 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js');
 addScript(PDFJS_BASE + 'build/pdf.min.js', () => {
   if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'build/pdf.worker.min.js';
